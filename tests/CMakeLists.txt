@@ -24,4 +24,4 @@ function(yorch_add_gtest target_name link_target source_file)
 endfunction()
 
 yorch_add_gtest(test_result yorch::yorch test_result.cpp)
-
+yorch_add_gtest(test_context yorch::yorch test_context.cpp)
