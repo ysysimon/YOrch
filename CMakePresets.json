@@ -64,7 +64,7 @@
     },
     {
       "name": "docs",
-      "displayName": "Docs",
+      "displayName": "Documentation",
       "inherits": "debug-no-tests",
       "cacheVariables": {
         "YORCH_BUILD_DOCS": "ON"
@@ -74,7 +74,7 @@
   "buildPresets": [
     {
       "name": "dev",
-      "configurePreset": "debug"
+      "configurePreset": "dev"
     },
     {
       "name": "debug",
@@ -100,7 +100,7 @@
   "testPresets": [
     {
       "name": "dev",
-      "configurePreset": "debug",
+      "configurePreset": "dev",
       "output": {
         "outputOnFailure": true
       }

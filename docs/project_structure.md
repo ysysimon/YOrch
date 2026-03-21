@@ -23,15 +23,15 @@ YOrch/
     test_bind.cpp
     test_schedule.cpp
   docs/
-    Doxyfile.in             # Doxygen 配置模板
-    index.md                # 文档首页
+    Doxyfile.in             # Doxygen config tempalte
+    index.md                # Doc index
     project_structure.md
   README.md
   LICENSE
   AGENTS.md
 ```
 
-文档构建入口：
+Document build entrance：
 
 ```bash
 cmake --preset docs

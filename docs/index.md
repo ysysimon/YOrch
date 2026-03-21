@@ -1,18 +1,18 @@
 # YOrch Documentation
 
-`YOrch` 是一个面向任务编排场景的 `C++20` 库骨架。
+`YOrch` is a `C++20` library skeleton designed for task orchestration scenarios.
 
 ## Overview
 
-当前仓库重点提供以下能力：
+The current repository focuses on the following capabilities:
 
-- 统一的命名空间与公开头文件入口
-- 结果类型、执行上下文与调度构建器等基础抽象
-- 基于 `CMake` 的安装、测试与文档生成入口
+- A unified namespace and a public header entry point
+- Core abstractions such as result types, execution contexts, and scheduler builders
+- `CMake`-based entry points for installation, testing, and documentation generation
 
 ## Public Headers
 
-主要公开头文件位于 `include/yorch/`：
+The main public headers are located under `include/yorch/`:
 
 - `yorch.hpp`
 - `result.hpp`
@@ -31,4 +31,4 @@ cmake --preset docs
 cmake --build --preset docs --target docs
 ```
 
-生成完成后可打开 `build/docs/docs/html/index.html` 查看文档。
+After the build completes, open `build/docs/docs/html/index.html` to view the generated documentation.
