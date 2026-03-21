@@ -1,0 +1,11 @@
+CompileFlags:
+  CompilationDatabase: build/dev
+
+Index:
+  Background: Build
+
+InlayHints:
+  Enabled: true
+
+Hover:
+  ShowAKA: true

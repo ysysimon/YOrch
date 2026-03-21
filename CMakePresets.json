@@ -1,0 +1,123 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 20,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "base-Ninja",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "debug",
+      "displayName": "Debug",
+      "inherits": "base-Ninja",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "YORCH_BUILD_TESTS": "ON",
+        "YORCH_BUILD_EXAMPLES": "ON"
+      }
+    },
+    {
+      "name": "dev",
+      "displayName": "Development",
+      "inherits": "debug",
+      "cacheVariables": {
+      }
+    },
+    {
+      "name": "release",
+      "displayName": "Release",
+      "inherits": "base-Ninja",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "YORCH_BUILD_TESTS": "ON",
+        "YORCH_BUILD_EXAMPLES": "ON"
+      }
+    },
+    {
+      "name": "debug-no-tests",
+      "displayName": "Debug Without Tests",
+      "inherits": "base-Ninja",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "YORCH_BUILD_TESTS": "OFF",
+        "YORCH_BUILD_EXAMPLES": "OFF"
+      }
+    },
+    {
+      "name": "release-no-tests",
+      "displayName": "Release Without Tests",
+      "inherits": "base-Ninja",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "YORCH_BUILD_TESTS": "OFF",
+        "YORCH_BUILD_EXAMPLES": "OFF"
+      }
+    },
+    {
+      "name": "docs",
+      "displayName": "Docs",
+      "inherits": "debug-no-tests",
+      "cacheVariables": {
+        "YORCH_BUILD_DOCS": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "dev",
+      "configurePreset": "debug"
+    },
+    {
+      "name": "debug",
+      "configurePreset": "debug"
+    },
+    {
+      "name": "release",
+      "configurePreset": "release"
+    },
+    {
+      "name": "debug-no-tests",
+      "configurePreset": "debug-no-tests"
+    },
+    {
+      "name": "release-no-tests",
+      "configurePreset": "release-no-tests"
+    },
+    {
+      "name": "docs",
+      "configurePreset": "docs"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "dev",
+      "configurePreset": "debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "debug",
+      "configurePreset": "debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "release",
+      "configurePreset": "release",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}

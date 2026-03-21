@@ -1,0 +1,11 @@
+# IDE
+/build/
+/.cache/
+/.idea/
+/.vscode/
+
+# macOS
+*.DS_Store
+
+# CMake
+CMakeUserPresets.json
