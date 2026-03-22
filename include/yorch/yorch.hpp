@@ -2,3 +2,5 @@
 
 #include "yorch/context.hpp" // IWYU pragma: export
 #include "yorch/result.hpp" // IWYU pragma: export
+#include "yorch/specs.hpp" // IWYU pragma: export
+#include "yorch/resolve.hpp" // IWYU pragma: export

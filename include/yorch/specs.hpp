@@ -64,7 +64,7 @@ template <typename T>
  * @return A `value_t` that owns the forwarded value.
  */
 template <typename T>
-[[nodiscard]] constexpr auto value(T&& v)
+[[nodiscard]] constexpr auto value(T&& v) // NOLINT(readability-identifier-length)
     -> value_t<std::remove_cvref_t<T>> {
     using stored_t = std::remove_cvref_t<T>;
     return value_t<stored_t>{std::forward<T>(v)};
