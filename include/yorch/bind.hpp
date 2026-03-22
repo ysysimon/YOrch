@@ -11,14 +11,34 @@
 
 namespace yorch::detail {
 
+/**
+ * @brief Extracts the canonical function signature information of a callable.
+ *
+ * The primary implementation is based on the normalized form `R(Args...)`.
+ * Other specializations strip wrappers such as pointers, references, or
+ * member-function qualifiers so `bind(...)` can reason about parameter types
+ * in a uniform way.
+ *
+ * @tparam T Callable or function type to inspect.
+ */
 template <typename T>
 struct function_traits;
 
+/**
+ * @brief Core traits specialization for a plain function type.
+ *
+ * @tparam R Return type.
+ * @tparam Args Parameter type list.
+ */
 template <typename R, typename... Args>
 struct function_traits<R(Args...)> {
+    /// Function return type.
     using result_type = R;
+
+    /// Number of declared parameters.
     static constexpr std::size_t arity = sizeof...(Args);
 
+    /// @brief Alias to the `I`-th parameter type.
     template <std::size_t I>
     using arg = std::tuple_element_t<I, std::tuple<Args...>>;
 };
@@ -44,6 +64,17 @@ using nth_arg_t = typename function_traits<std::remove_cvref_t<F>>::template arg
 template <typename F>
 using result_t = typename function_traits<std::remove_cvref_t<F>>::result_type;
 
+/**
+ * @brief Converts a supported task return value into `step_result`.
+ *
+ * Supported inputs are `step_result` itself and `bool`. `bool` is interpreted
+ * as a success/failure shortcut, while unsupported return categories fail at
+ * compile time.
+ *
+ * @tparam R Concrete return object type.
+ * @param r Return value produced by a bound callable.
+ * @return Normalized scheduler-facing result.
+ */
 template <typename R>
 constexpr step_result normalize_result(R&& r) {
     using raw_t = std::remove_cvref_t<R>;
@@ -59,6 +90,18 @@ constexpr step_result normalize_result(R&& r) {
     }
 }
 
+/**
+ * @brief Invokes a callable and normalizes its completion status.
+ *
+ * `void` is treated as success. Non-void results are forwarded to
+ * `normalize_result(...)`.
+ *
+ * @tparam F Callable type.
+ * @tparam Args Argument types used for invocation.
+ * @param f Callable to invoke.
+ * @param args Concrete arguments prepared for the call.
+ * @return Normalized `step_result` for the scheduler.
+ */
 template <typename F, typename... Args>
 constexpr step_result invoke_and_normalize(F&& f, Args&&... args) {
     using R = std::invoke_result_t<F, Args...>;
@@ -77,11 +120,30 @@ constexpr step_result invoke_and_normalize(F&& f, Args&&... args) {
 
 namespace yorch {
 
+/**
+ * @brief Bound executable task composed of a callable and per-parameter specs.
+ *
+ * At execution time, each spec is resolved against the target parameter type
+ * deduced from `F`, then the callable is invoked and its return value is
+ * normalized to `step_result`.
+ *
+ * @tparam F Stored callable type.
+ * @tparam Specs Stored spec types, one for each function parameter.
+ */
 template <typename F, typename... Specs>
 struct bound_task {
+    /// Stored callable to execute.
     F func;
+
+    /// Stored argument binding specs in parameter order.
     std::tuple<Specs...> specs;
 
+    /**
+     * @brief Resolves all specs and executes the bound callable.
+     * @tparam Ctx Context schema used for this execution.
+     * @param ec Borrowed execution context.
+     * @return Normalized task result.
+     */
     template <typename Ctx>
     constexpr step_result operator()(exec_context<Ctx>& ec) {
         return call_impl(ec, std::index_sequence_for<Specs...>{});
@@ -97,6 +159,19 @@ private:
     }
 };
 
+/**
+ * @brief Creates a `bound_task` from a callable and matching argument specs.
+ *
+ * The callable and specs are stored by decayed value. The number of specs must
+ * exactly match the callable arity so each parameter can be resolved with the
+ * corresponding target type.
+ *
+ * @tparam F Callable type.
+ * @tparam Specs Spec types.
+ * @param f Callable to execute later.
+ * @param specs Parameter binding specs in call order.
+ * @return A `bound_task` that can be run with an `exec_context`.
+ */
 template <typename F, typename... Specs>
 constexpr auto bind(F&& f, Specs&&... specs) {
     static_assert(
