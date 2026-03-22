@@ -12,6 +12,19 @@ inline constexpr bool always_false_v = false;
 
 namespace yorch {
 
+/**
+ * @brief Binds an existing lvalue source object to the requested argument type.
+ *
+ * This is the final adaptation step in resolution: it does not locate the
+ * source object, it only turns an already available lvalue into `Arg`. The
+ * function supports binding to `T&`, `const T&`, and value parameters, while
+ * rejecting rvalue-reference arguments.
+ *
+ * @tparam Arg Target function parameter type.
+ * @tparam Source Concrete source object type.
+ * @param src Source object to bind from.
+ * @return A reference or value matching `Arg`.
+ */
 template <typename Arg, typename Source>
 constexpr decltype(auto) bind_from_lvalue(Source& src) {
     static_assert(!std::is_rvalue_reference_v<Arg>,
@@ -36,6 +49,20 @@ constexpr decltype(auto) bind_from_lvalue(Source& src) {
     }
 }
 
+/**
+ * @brief Resolves a `from_ctx(...)` spec by fetching the requested object from
+ * the execution context and binding it as `Arg`.
+ *
+ * The lookup type is normalized by `from_ctx_t<T>::type`, then validated
+ * against the context schema before the retrieved object is passed to
+ * `bind_from_lvalue`.
+ *
+ * @tparam Arg Target function parameter type.
+ * @tparam T Requested context type encoded by the spec.
+ * @tparam Ctx Context type carried by the current execution.
+ * @param ec Execution context that provides the source object.
+ * @return A reference or value matching `Arg`.
+ */
 template <typename Arg, typename T, typename Ctx>
 constexpr decltype(auto) resolve_as(from_ctx_t<T>, exec_context<Ctx>& ec) {
     static_assert(!std::is_void_v<Ctx>,
@@ -50,6 +77,19 @@ constexpr decltype(auto) resolve_as(from_ctx_t<T>, exec_context<Ctx>& ec) {
     return bind_from_lvalue<Arg>(src);
 }
 
+/**
+ * @brief Resolves a mutable `value(...)` spec into the requested argument type.
+ *
+ * The stored object is taken from `spec.v` and adapted under the stricter
+ * `value(...)` rules: value parameters are copied or converted from the stored
+ * lvalue, and reference parameters must be `const T&`.
+ *
+ * @tparam Arg Target function parameter type.
+ * @tparam T Stored value type.
+ * @tparam Ctx Context type, unused for this spec category.
+ * @param spec Spec that owns the stored value.
+ * @return A const reference or value matching `Arg`.
+ */
 template <typename Arg, typename T, typename Ctx>
 constexpr decltype(auto) resolve_as(value_t<T>& spec, exec_context<Ctx>&) {
     static_assert(!std::is_rvalue_reference_v<Arg>,
@@ -70,6 +110,19 @@ constexpr decltype(auto) resolve_as(value_t<T>& spec, exec_context<Ctx>&) {
     }
 }
 
+/**
+ * @brief Resolves a const `value(...)` spec into the requested argument type.
+ *
+ * This overload preserves the constness of the stored source expression. As a
+ * result, reference binding is limited to `const T&`, and value construction
+ * must be valid from `const T&`.
+ *
+ * @tparam Arg Target function parameter type.
+ * @tparam T Stored value type.
+ * @tparam Ctx Context type, unused for this spec category.
+ * @param spec Const spec that owns the stored value.
+ * @return A const reference or value matching `Arg`.
+ */
 template <typename Arg, typename T, typename Ctx>
 constexpr decltype(auto) resolve_as(const value_t<T>& spec, exec_context<Ctx>&) {
     static_assert(!std::is_rvalue_reference_v<Arg>,
@@ -90,6 +143,16 @@ constexpr decltype(auto) resolve_as(const value_t<T>& spec, exec_context<Ctx>&) 
     }
 }
 
+/**
+ * @brief Fallback overload for unsupported spec categories.
+ *
+ * This function exists only to produce a focused compile-time diagnostic when
+ * no dedicated `resolve_as(...)` overload matches the provided spec.
+ *
+ * @tparam Arg Target function parameter type.
+ * @tparam Spec Unsupported spec type.
+ * @tparam Ctx Context type carried by the current execution.
+ */
 template <typename Arg, typename Spec, typename Ctx>
 constexpr decltype(auto) resolve_as(Spec&&, exec_context<Ctx>&) {
     static_assert(detail::always_false_v<std::remove_cvref_t<Spec>>,
