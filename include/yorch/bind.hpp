@@ -76,7 +76,7 @@ using result_t = typename function_traits<std::remove_cvref_t<F>>::result_type;
  * @return Normalized scheduler-facing result.
  */
 template <typename R>
-constexpr step_result normalize_result(R&& r) {
+constexpr step_result normalize_result(R&& r) { // NOLINT(readability-identifier-length)
     using raw_t = std::remove_cvref_t<R>;
 
     if constexpr (std::is_same_v<raw_t, step_result>) {
@@ -103,7 +103,7 @@ constexpr step_result normalize_result(R&& r) {
  * @return Normalized `step_result` for the scheduler.
  */
 template <typename F, typename... Args>
-constexpr step_result invoke_and_normalize(F&& f, Args&&... args) {
+constexpr step_result invoke_and_normalize(F&& f, Args&&... args) { // NOLINT(readability-identifier-length)
     using R = std::invoke_result_t<F, Args...>;
 
     if constexpr (std::is_void_v<R>) {
@@ -166,6 +166,14 @@ private:
  * exactly match the callable arity so each parameter can be resolved with the
  * corresponding target type.
  *
+ * Current boundary: `bind(...)` still requires a callable with one unambiguous
+ * signature. Overloaded function names, generic lambdas, and callables with
+ * overloaded `operator()` are intentionally not deduced automatically in this
+ * phase. For example, `bind(foo, ...)` is ambiguous if `foo` is overloaded,
+ * `bind([](auto&& x) { ... }, ...)` is unsupported because the lambda is
+ * generic, and a type such as `struct X { void operator()(int) const; void
+ * operator()(double) const; };` is also out of scope for this phase.
+ *
  * @tparam F Callable type.
  * @tparam Specs Spec types.
  * @param f Callable to execute later.
@@ -173,7 +181,7 @@ private:
  * @return A `bound_task` that can be run with an `exec_context`.
  */
 template <typename F, typename... Specs>
-constexpr auto bind(F&& f, Specs&&... specs) {
+constexpr auto bind(F&& f, Specs&&... specs) { // NOLINT(readability-identifier-length)
     static_assert(
         sizeof...(Specs) == detail::function_traits<std::remove_cvref_t<F>>::arity,
         "bind(...) requires exactly one spec per function parameter"

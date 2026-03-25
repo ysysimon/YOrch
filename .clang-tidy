@@ -56,3 +56,7 @@ CheckOptions:
       value: true
     - key: readability-magic-numbers.IgnorePowersOf2IntegerValues
       value: true
+    - key: cppcoreguidelines-avoid-magic-numbers.IgnoredIntegerValues
+      value: '3;7;42;'
+    - key: readability-magic-numbers.IgnoredIntegerValues
+      value: '3;7;42;'

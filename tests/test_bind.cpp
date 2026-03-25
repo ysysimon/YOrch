@@ -83,6 +83,7 @@ TEST(BindTest, BoundTaskNormalizesBoolReturnValues) {
     yorch::exec_context<void> exec;
 
     auto success_task = yorch::bind(
+        // NOLINTNEXTLINE(performance-unnecessary-value-param)
         [](std::string value) -> bool {
             return value == "payload";
         },
@@ -94,18 +95,27 @@ TEST(BindTest, BoundTaskNormalizesBoolReturnValues) {
         },
         yorch::value(-1));
 
+    auto const_ref_task = yorch::bind(
+        [](const std::string& value) -> bool {
+            return value == "payload";
+        },
+        yorch::value(source));
+
     source = "updated";
 
     const auto success = success_task(exec);
     const auto failure = failure_task(exec);
+    const auto const_ref_success = const_ref_task(exec);
 
     EXPECT_EQ(std::get<0>(success_task.specs).v, "payload");
+    EXPECT_EQ(std::get<0>(const_ref_task.specs).v, "payload");
     EXPECT_EQ(success.status, yorch::step_status::success);
     EXPECT_EQ(failure.status, yorch::step_status::failure);
+    EXPECT_EQ(const_ref_success.status, yorch::step_status::success);
 }
 
 TEST(BindTest, BoundTaskNormalizesVoidReturnAsSuccess) {
-    yorch::context<int> ctx(5);
+    yorch::context<int> ctx(3);
     yorch::exec_context<decltype(ctx)> exec {ctx};
 
     auto task = yorch::bind(
@@ -117,5 +127,5 @@ TEST(BindTest, BoundTaskNormalizesVoidReturnAsSuccess) {
     const auto result = task(exec);
 
     EXPECT_TRUE(result.ok());
-    EXPECT_EQ(ctx.get<int>(), 10);
+    EXPECT_EQ(ctx.get<int>(), 6);
 }
