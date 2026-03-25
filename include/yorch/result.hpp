@@ -81,6 +81,9 @@ template <typename T>
 struct task_result {
     static_assert(!std::is_reference_v<T>, "yorch::task_result<T> does not support reference types");
 
+    /// Value type carried by this result wrapper.
+    using value_type = T;
+
     /** @brief Execution status of the current step. */
     step_result step {};
     /** @brief Value produced by the current task. */
@@ -94,8 +97,47 @@ struct task_result {
  */
 template <>
 struct task_result<void> {
+    /// Value type carried by this result wrapper.
+    using value_type = void;
+
     /** @brief Execution status of the current step. */
     step_result step {};
 };
+
+/**
+ * @brief Type trait that detects `task_result<T>`.
+ *
+ * The primary template reports `false`. The specialization for
+ * `task_result<T>` reports `true`, and the variable template strips cv-ref
+ * qualifiers before checking.
+ *
+ * @tparam T Candidate type to inspect.
+ */
+template <typename T>
+struct is_task_result : std::false_type {};
+
+template <typename T>
+struct is_task_result<task_result<T>> : std::true_type {};
+
+template <typename T>
+inline constexpr bool is_task_result_v =
+    is_task_result<std::remove_cvref_t<T>>::value;
+
+/**
+ * @brief Extracts the payload type from `task_result<T>`.
+ *
+ * @tparam T `task_result` wrapper type.
+ */
+template <typename T>
+struct task_result_value;
+
+template <typename T>
+struct task_result_value<task_result<T>> {
+    using type = T;
+};
+
+template <typename T>
+using task_result_value_t =
+    typename task_result_value<std::remove_cvref_t<T>>::type;
 
 }  // namespace yorch
