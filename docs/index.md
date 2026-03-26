@@ -9,6 +9,7 @@ The current repository focuses on the following capabilities:
 - A unified namespace and a public header entry point
 - Core abstractions such as result types, execution contexts, and scheduler builders
 - `CMake`-based entry points for installation, testing, and documentation generation
+- An overview document for the current execution model
 
 ## Public Headers
 
@@ -23,6 +24,10 @@ The main public headers are located under `include/yorch/`:
 - `executor.hpp`
 - `schedule.hpp`
 - `traits.hpp`
+
+## Additional Docs
+
+- `execution_model.md`
 
 ## Build Docs
 

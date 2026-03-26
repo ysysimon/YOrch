@@ -25,6 +25,7 @@ YOrch/
   docs/
     Doxyfile.in             # Doxygen config tempalte
     index.md                # Doc index
+    execution_model.md
     project_structure.md
   README.md
   LICENSE
