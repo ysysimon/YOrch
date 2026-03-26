@@ -129,3 +129,21 @@ TEST(BindTest, BoundTaskNormalizesVoidReturnAsSuccess) {
     EXPECT_TRUE(result.ok());
     EXPECT_EQ(ctx.get<int>(), 6);
 }
+
+TEST(BindTest, BoundTaskCanResolveFromDirectParentSlot) {
+    int parent_value = 5;
+    yorch::exec_context<void, decltype(yorch::prev_slot(parent_value))> exec {
+        yorch::prev_slot(parent_value)};
+
+    auto task = yorch::bind(
+        [](int& value) -> yorch::step_result {
+            value += 3;
+            return yorch::step_result::success();
+        },
+        yorch::from_prev<int>());
+
+    const auto result = task(exec);
+
+    EXPECT_TRUE(result.ok());
+    EXPECT_EQ(parent_value, 8);
+}

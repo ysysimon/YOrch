@@ -12,9 +12,85 @@ inline constexpr std::size_t type_count_v = (std::size_t{0} + ... + (std::is_sam
 template <typename... Ts>
 inline constexpr bool unique_types_v = ((type_count_v<Ts, Ts...> == 1) && ...);
 
+template <typename>
+inline constexpr bool no_prev_always_false_v = false;
+
 } // namespace yorch::detail
 
 namespace yorch {
+
+/**
+ * @brief Sentinel view indicating that the current execution has no direct
+ * parent output.
+ */
+struct no_prev {
+    template <typename T>
+    [[nodiscard]] static constexpr bool contains() noexcept {
+        return false;
+    }
+
+    /**
+     * @brief Always fails because `no_prev` carries no retrievable value.
+     *
+     * `no_prev` still exposes the same `contains<T>() / get<T>()` protocol
+     * shape as a concrete parent-slot view so generic resolution code can be
+     * written against one interface. The operation itself is invalid here, so
+     * `get<T>()` emits a targeted compile-time error if some code path tries
+     * to fetch a direct-parent value when none exists.
+     */
+    template <typename T>
+    constexpr auto get() const -> T& {
+        static_assert(detail::no_prev_always_false_v<T>,
+                      "no_prev does not carry a direct parent value");
+    }
+};
+
+/**
+ * @brief Lightweight borrowed view over a direct parent output slot.
+ *
+ * The view carries exactly one payload object and exposes a type-based API so
+ * `resolve_as(from_prev_t<...>, ...)` can stay structurally similar to
+ * `from_ctx(...)`.
+ *
+ * @tparam T Stored payload type. Constness is preserved; references are not.
+ */
+template <typename T>
+struct prev_slot_view {
+    using stored_type = std::remove_reference_t<T>;
+    using type = std::remove_cv_t<stored_type>;
+
+    static_assert(!std::is_void_v<type>,
+                  "prev_slot_view<T> requires a non-void payload type");
+
+    /// Borrowed reference to the direct parent payload.
+    // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
+    stored_type& ref;
+
+    template <typename U>
+    [[nodiscard]] static constexpr bool contains() noexcept {
+        return std::is_same_v<std::remove_cv_t<U>, type>;
+    }
+
+    template <typename U>
+    constexpr stored_type& get() const {
+        static_assert(contains<U>(),
+                      "Requested type is not present in the direct parent slot");
+        return ref;
+    }
+};
+
+/**
+ * @brief Creates a borrowed view over a direct parent payload object.
+ *
+ * @tparam T Payload expression type.
+ * @param value Payload object stored in the current direct parent slot.
+ * @return A `prev_slot_view` borrowing `value`.
+ */
+template <typename T>
+[[nodiscard]] constexpr auto prev_slot(T& value) noexcept
+    -> prev_slot_view<T> {
+    return {value};
+}
 
 /**
  * @brief Statically typed context container with a compile-time schema.
@@ -106,14 +182,54 @@ struct context {
  *
  * @tparam Ctx Borrowed context type.
  */
-template <typename Ctx>
+template <typename Ctx, typename Prev = no_prev>
 struct exec_context {
     // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
     Ctx& ctx;
+
+    /// Optional direct-parent payload view used by `from_prev(...)`.
+    Prev prev;
+
+    [[nodiscard]] constexpr Prev& prev_view() & noexcept {
+        return prev;
+    }
+
+    [[nodiscard]] constexpr const Prev& prev_view() const& noexcept {
+        return prev;
+    }
+};
+
+template <typename Ctx>
+struct exec_context<Ctx, no_prev> {
+    // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
+    Ctx& ctx;
+
+    [[nodiscard]] constexpr no_prev prev_view() const noexcept {
+        return {};
+    }
 };
 
 /// @brief Indicates that the current execution path carries no context.
 template <>
-struct exec_context<void> {};
+struct exec_context<void, no_prev> {
+    // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+    [[nodiscard]] constexpr no_prev prev_view() const noexcept {
+        return {};
+    }
+};
+
+template <typename Prev>
+struct exec_context<void, Prev> {
+    /// Optional direct-parent payload view used by `from_prev(...)`.
+    Prev prev;
+
+    [[nodiscard]] constexpr Prev& prev_view() & noexcept {
+        return prev;
+    }
+
+    [[nodiscard]] constexpr const Prev& prev_view() const& noexcept {
+        return prev;
+    }
+};
 
 }  // namespace yorch

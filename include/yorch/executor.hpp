@@ -7,9 +7,9 @@
 
 namespace yorch {
 
-template <typename Task, typename Ctx>
+template <typename Task, typename Ctx, typename Prev = no_prev>
 concept executable_task =
-    requires(Task&& task, exec_context<Ctx>& ec) {
+    requires(Task&& task, exec_context<Ctx, Prev>& ec) {
         { std::forward<Task>(task)(ec) } -> std::same_as<step_result>;
     };
 
@@ -27,9 +27,9 @@ concept executable_task =
  * @param ec Borrowed execution context.
  * @return The task's normalized `step_result`.
  */
-template <typename Task, typename Ctx>
-    requires executable_task<Task, Ctx>
-[[nodiscard]] constexpr step_result run_task(Task&& task, exec_context<Ctx>& ec)
+template <typename Task, typename Ctx, typename Prev = no_prev>
+    requires executable_task<Task, Ctx, Prev>
+[[nodiscard]] constexpr step_result run_task(Task&& task, exec_context<Ctx, Prev>& ec)
     noexcept(noexcept(std::forward<Task>(task)(ec))) {
     return std::forward<Task>(task)(ec);
 }

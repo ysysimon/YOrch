@@ -37,6 +37,18 @@ TEST(SpecsTest, FromCtxNormalizesCvrefTypes) {
     EXPECT_TRUE((std::is_empty_v<decltype(string_spec)>));
 }
 
+TEST(SpecsTest, FromPrevNormalizesCvrefTypes) {
+    constexpr auto int_spec = yorch::from_prev<const int&>();
+    constexpr auto string_spec = yorch::from_prev<volatile std::string&&>();
+
+    static_assert(std::is_same_v<decltype(int_spec), const yorch::from_prev_t<int>>);
+    static_assert(std::is_same_v<typename decltype(int_spec)::type, int>);
+    static_assert(std::is_same_v<typename decltype(string_spec)::type, std::string>);
+
+    EXPECT_TRUE((std::is_empty_v<decltype(int_spec)>));
+    EXPECT_TRUE((std::is_empty_v<decltype(string_spec)>));
+}
+
 TEST(SpecsTest, ValueDecaysLvalueReferencesIntoOwnedStorage) {
     std::string source = "hello";
 

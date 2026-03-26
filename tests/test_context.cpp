@@ -101,3 +101,90 @@ TEST(ContextTest, ExecContextBorrowsAnExistingContext) {
 
     static_assert(std::is_empty_v<yorch::exec_context<void>>);
 }
+
+TEST(ContextTest, PrevSlotViewBorrowsDirectParentByReference) {
+    int parent_value = 7;
+    auto view = yorch::prev_slot(parent_value);
+
+    static_assert(std::is_same_v<decltype(view.get<int>()), int&>);
+
+    view.get<int>() = 11;
+
+    EXPECT_EQ(parent_value, 11);
+}
+
+TEST(ContextTest, PrevSlotViewReportsContainedTypeByNormalizedPayloadType) {
+    int parent_value = 7;
+    using view_t = decltype(yorch::prev_slot(parent_value));
+
+    static_assert(view_t::contains<int>());
+    static_assert(view_t::contains<const int>());
+    static_assert(!view_t::contains<long>());
+
+    EXPECT_TRUE((view_t::contains<volatile int>()));
+    EXPECT_FALSE((view_t::contains<std::string>()));
+}
+
+TEST(ContextTest, PrevSlotViewGetPreservesUnderlyingPayloadConstness) {
+    int mutable_parent = 7;
+    const int const_parent = 9;
+
+    auto mutable_view = yorch::prev_slot(mutable_parent);
+    auto const_view = yorch::prev_slot(const_parent);
+
+    static_assert(std::is_same_v<decltype(mutable_view.get<int>()), int&>);
+    static_assert(std::is_same_v<decltype(std::as_const(mutable_view).get<int>()), int&>);
+    static_assert(std::is_same_v<decltype(const_view.get<int>()), const int&>);
+    static_assert(std::is_same_v<decltype(std::as_const(const_view).get<int>()), const int&>);
+
+    mutable_view.get<int>() = 13;
+
+    EXPECT_EQ(mutable_parent, 13);
+    EXPECT_EQ(const_view.get<int>(), 9);
+}
+
+TEST(ContextTest, ExecContextPrevViewReturnsStoredPrevSlotView) {
+    yorch::context<int> ctx(3);
+    int parent_value = 5;
+    yorch::exec_context<decltype(ctx), decltype(yorch::prev_slot(parent_value))> exec {
+        ctx,
+        yorch::prev_slot(parent_value)};
+
+    auto&& view = exec.prev_view();
+
+    static_assert(std::is_same_v<decltype(view), decltype(exec.prev)&>);
+    static_assert(std::is_same_v<decltype(std::as_const(exec).prev_view()), const decltype(exec.prev)&>);
+
+    view.get<int>() = 8;
+
+    EXPECT_EQ(parent_value, 8);
+}
+
+TEST(ContextTest, ExecContextVoidPrevViewReturnsStoredPrevSlotView) {
+    int parent_value = 5;
+    yorch::exec_context<void, decltype(yorch::prev_slot(parent_value))> exec {
+        yorch::prev_slot(parent_value)};
+
+    auto&& view = exec.prev_view();
+
+    static_assert(std::is_same_v<decltype(view), decltype(exec.prev)&>);
+    static_assert(std::is_same_v<decltype(std::as_const(exec).prev_view()), const decltype(exec.prev)&>);
+
+    view.get<int>() = 10;
+
+    EXPECT_EQ(parent_value, 10);
+}
+
+TEST(ContextTest, ExecContextWithoutPrevUsesNoPrevView) {
+    yorch::context<int> ctx(3);
+    yorch::exec_context<decltype(ctx)> exec {ctx};
+    yorch::exec_context<void> void_exec;
+
+    static_assert(std::is_same_v<decltype(exec.prev_view()), yorch::no_prev>);
+    static_assert(std::is_same_v<decltype(std::as_const(exec).prev_view()), yorch::no_prev>);
+    static_assert(std::is_same_v<decltype(void_exec.prev_view()), yorch::no_prev>);
+    static_assert(std::is_same_v<decltype(std::as_const(void_exec).prev_view()), yorch::no_prev>);
+
+    EXPECT_FALSE((decltype(exec.prev_view())::contains<int>()));
+    EXPECT_FALSE((decltype(void_exec.prev_view())::contains<int>()));
+}

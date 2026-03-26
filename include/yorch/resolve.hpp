@@ -60,11 +60,12 @@ constexpr decltype(auto) bind_from_lvalue(Source& src) {
  * @tparam Arg Target function parameter type.
  * @tparam T Requested context type encoded by the spec.
  * @tparam Ctx Context type carried by the current execution.
+ * @tparam Prev Parent slot view type carried by the current execution.
  * @param ec Execution context that provides the source object.
  * @return A reference or value matching `Arg`.
  */
-template <typename Arg, typename T, typename Ctx>
-constexpr decltype(auto) resolve_as(from_ctx_t<T>, exec_context<Ctx>& ec) {
+template <typename Arg, typename T, typename Ctx, typename Prev>
+constexpr decltype(auto) resolve_as(from_ctx_t<T>, exec_context<Ctx, Prev>& ec) {
     static_assert(!std::is_void_v<Ctx>,
                   "from_ctx<T>() cannot be used with exec_context<void>");
 
@@ -78,6 +79,33 @@ constexpr decltype(auto) resolve_as(from_ctx_t<T>, exec_context<Ctx>& ec) {
 }
 
 /**
+ * @brief Resolves a `from_prev(...)` spec by fetching the direct parent output
+ * payload from the current execution's parent slot view.
+ *
+ * The lookup type is normalized by `from_prev_t<T>::type`, then validated
+ * against the direct parent slot carried by the execution context before the
+ * retrieved object is passed to `bind_from_lvalue`.
+ *
+ * @tparam Arg Target function parameter type.
+ * @tparam T Requested parent payload type encoded by the spec.
+ * @tparam Ctx Context type carried by the current execution.
+ * @tparam Prev Direct-parent slot view type carried by the execution.
+ * @param ec Execution context that provides the direct parent payload.
+ * @return A reference or value matching `Arg`.
+ */
+template <typename Arg, typename T, typename Ctx, typename Prev>
+constexpr decltype(auto) resolve_as(from_prev_t<T>, exec_context<Ctx, Prev>& ec) {
+    using source_t = typename from_prev_t<T>::type;
+    using prev_t = std::remove_cvref_t<decltype(ec.prev_view())>;
+
+    static_assert(prev_t::template contains<source_t>(),
+                  "from_prev<T>() requires a direct parent slot carrying the requested type");
+
+    auto& src = ec.prev_view().template get<source_t>();
+    return bind_from_lvalue<Arg>(src);
+}
+
+/**
  * @brief Resolves a mutable `value(...)` spec into the requested argument type.
  *
  * The stored object is taken from `spec.v` and adapted under the stricter
@@ -87,11 +115,12 @@ constexpr decltype(auto) resolve_as(from_ctx_t<T>, exec_context<Ctx>& ec) {
  * @tparam Arg Target function parameter type.
  * @tparam T Stored value type.
  * @tparam Ctx Context type, unused for this spec category.
+ * @tparam Prev Parent slot view type carried by the current execution.
  * @param spec Spec that owns the stored value.
  * @return A const reference or value matching `Arg`.
  */
-template <typename Arg, typename T, typename Ctx>
-constexpr decltype(auto) resolve_as(value_t<T>& spec, exec_context<Ctx>&) {
+template <typename Arg, typename T, typename Ctx, typename Prev>
+constexpr decltype(auto) resolve_as(value_t<T>& spec, exec_context<Ctx, Prev>&) {
     static_assert(!std::is_rvalue_reference_v<Arg>,
                   "Does not support binding value(...) to T&&");
 
@@ -120,11 +149,12 @@ constexpr decltype(auto) resolve_as(value_t<T>& spec, exec_context<Ctx>&) {
  * @tparam Arg Target function parameter type.
  * @tparam T Stored value type.
  * @tparam Ctx Context type, unused for this spec category.
+ * @tparam Prev Parent slot view type carried by the current execution.
  * @param spec Const spec that owns the stored value.
  * @return A const reference or value matching `Arg`.
  */
-template <typename Arg, typename T, typename Ctx>
-constexpr decltype(auto) resolve_as(const value_t<T>& spec, exec_context<Ctx>&) {
+template <typename Arg, typename T, typename Ctx, typename Prev>
+constexpr decltype(auto) resolve_as(const value_t<T>& spec, exec_context<Ctx, Prev>&) {
     static_assert(!std::is_rvalue_reference_v<Arg>,
                   "Does not support binding value(...) to T&&");
 
@@ -152,9 +182,10 @@ constexpr decltype(auto) resolve_as(const value_t<T>& spec, exec_context<Ctx>&) 
  * @tparam Arg Target function parameter type.
  * @tparam Spec Unsupported spec type.
  * @tparam Ctx Context type carried by the current execution.
+ * @tparam Prev Parent slot view type carried by the current execution.
  */
-template <typename Arg, typename Spec, typename Ctx>
-constexpr decltype(auto) resolve_as(Spec&&, exec_context<Ctx>&) {
+template <typename Arg, typename Spec, typename Ctx, typename Prev>
+constexpr decltype(auto) resolve_as(Spec&&, exec_context<Ctx, Prev>&) {
     static_assert(detail::always_false_v<std::remove_cvref_t<Spec>>,
                   "Unsupported spec in resolve_as");
 }

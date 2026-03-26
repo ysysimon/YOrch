@@ -141,17 +141,18 @@ struct bound_task {
     /**
      * @brief Resolves all specs and executes the bound callable.
      * @tparam Ctx Context schema used for this execution.
+     * @tparam Prev Parent slot view type for this execution.
      * @param ec Borrowed execution context.
      * @return Normalized task result.
      */
-    template <typename Ctx>
-    constexpr step_result operator()(exec_context<Ctx>& ec) {
+    template <typename Ctx, typename Prev>
+    constexpr step_result operator()(exec_context<Ctx, Prev>& ec) {
         return call_impl(ec, std::index_sequence_for<Specs...>{});
     }
 
 private:
-    template <typename Ctx, std::size_t... I>
-    constexpr step_result call_impl(exec_context<Ctx>& ec, std::index_sequence<I...>) {
+    template <typename Ctx, typename Prev, std::size_t... I>
+    constexpr step_result call_impl(exec_context<Ctx, Prev>& ec, std::index_sequence<I...>) {
         return detail::invoke_and_normalize(
             func,
             resolve_as<detail::nth_arg_t<I, F>>(std::get<I>(specs), ec)...

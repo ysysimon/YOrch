@@ -82,3 +82,37 @@ TEST(ResolveTest, ResolveConstValueSpecPreservesConstSourceRules) {
     EXPECT_EQ(copied, "fixed");
     EXPECT_EQ(bound.data(), spec.v.data());
 }
+
+TEST(ResolveTest, ResolveFromPrevBorrowsMutableDirectParentSlot) {
+    int parent_value = 4;
+    yorch::exec_context<void, decltype(yorch::prev_slot(parent_value))> exec {
+        yorch::prev_slot(parent_value)};
+
+    auto&& bound = yorch::resolve_as<int&>(yorch::from_prev<int>(), exec);
+    auto copied = yorch::resolve_as<long>(yorch::from_prev<int>(), exec);
+
+    static_assert(std::is_same_v<decltype(bound), int&>);
+    static_assert(std::is_same_v<decltype(copied), long>);
+
+    bound = 9;
+
+    EXPECT_EQ(parent_value, 9);
+    EXPECT_EQ(copied, 4);
+}
+
+TEST(ResolveTest, ResolveFromPrevPreservesConstParentSourceRules) {
+    const std::string parent_value = "root";
+    yorch::exec_context<void, decltype(yorch::prev_slot(parent_value))> exec {
+        yorch::prev_slot(parent_value)};
+
+    auto&& bound =
+        yorch::resolve_as<const std::string&>(yorch::from_prev<std::string>(), exec);
+    auto copied = yorch::resolve_as<std::string>(yorch::from_prev<std::string>(), exec);
+
+    static_assert(std::is_same_v<decltype(bound), const std::string&>);
+    static_assert(std::is_same_v<decltype(copied), std::string>);
+
+    EXPECT_EQ(bound, "root");
+    EXPECT_EQ(copied, "root");
+    EXPECT_EQ(bound.data(), parent_value.data());
+}

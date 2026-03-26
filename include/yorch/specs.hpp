@@ -19,6 +19,21 @@ struct from_ctx_t {
 };
 
 /**
+ * @brief Describes a parameter sourced from the direct parent output slot.
+ *
+ * This spec is intentionally narrower than a generic upstream lookup. In the
+ * current design, `from_prev<T>()` means "read the current node's
+ * direct parent output" and nothing else.
+ *
+ * @tparam T Requested parent payload type after cv-ref normalization.
+ */
+template <typename T>
+struct from_prev_t {
+    /// Canonical parent payload type used for lookup.
+    using type = std::remove_cvref_t<T>;
+};
+
+/**
  * @brief Stores a concrete value inside a spec.
  *
  * `value_t<T>` owns the object it carries so the bound argument can be
@@ -50,6 +65,23 @@ struct value_t {
 template <typename T>
 [[nodiscard]] constexpr auto from_ctx() noexcept
     -> from_ctx_t<std::remove_cvref_t<T>> {
+    return {};
+}
+
+/**
+ * @brief Creates a spec that asks execution to fetch `T` from the direct
+ * parent output slot.
+ *
+ * The returned object only records the requested payload type. Actual access
+ * happens later during resolution against the current execution's parent slot
+ * view.
+ *
+ * @tparam T Parent payload type to request.
+ * @return A `from_prev_t` carrying the normalized lookup type.
+ */
+template <typename T>
+[[nodiscard]] constexpr auto from_prev() noexcept
+    -> from_prev_t<std::remove_cvref_t<T>> {
     return {};
 }
 
