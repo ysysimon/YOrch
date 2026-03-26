@@ -1,4 +1,5 @@
 #include "yorch/bind.hpp"
+#include "yorch/result.hpp"
 
 #include <gtest/gtest.h>
 
@@ -69,7 +70,7 @@ TEST(BindTest, BoundTaskResolvesSpecsUsingCallableSignature) {
                       yorch::from_ctx_t<std::string>,
                       yorch::value_t<int>>>);
 
-    const auto result = task(exec);
+    const auto result = task.invoke_raw(exec);
 
     EXPECT_EQ(task.func.seen_value, 3);
     ASSERT_NE(task.func.seen_label, nullptr);
@@ -78,7 +79,7 @@ TEST(BindTest, BoundTaskResolvesSpecsUsingCallableSignature) {
     EXPECT_EQ(result.status, yorch::step_status::retry);
 }
 
-TEST(BindTest, BoundTaskNormalizesBoolReturnValues) {
+TEST(BindTest, BoundTaskPreservesRawBoolReturnValues) {
     std::string source = "payload";
     yorch::exec_context<void> exec;
 
@@ -103,18 +104,18 @@ TEST(BindTest, BoundTaskNormalizesBoolReturnValues) {
 
     source = "updated";
 
-    const auto success = success_task(exec);
-    const auto failure = failure_task(exec);
-    const auto const_ref_success = const_ref_task(exec);
+    const auto success = success_task.invoke_raw(exec);
+    const auto failure = failure_task.invoke_raw(exec);
+    const auto const_ref_success = const_ref_task.invoke_raw(exec);
 
     EXPECT_EQ(std::get<0>(success_task.specs).v, "payload");
     EXPECT_EQ(std::get<0>(const_ref_task.specs).v, "payload");
-    EXPECT_EQ(success.status, yorch::step_status::success);
-    EXPECT_EQ(failure.status, yorch::step_status::failure);
-    EXPECT_EQ(const_ref_success.status, yorch::step_status::success);
+    EXPECT_TRUE(success);
+    EXPECT_FALSE(failure);
+    EXPECT_TRUE(const_ref_success);
 }
 
-TEST(BindTest, BoundTaskNormalizesVoidReturnAsSuccess) {
+TEST(BindTest, BoundTaskPreservesVoidReturnType) {
     yorch::context<int> ctx(3);
     yorch::exec_context<decltype(ctx)> exec {ctx};
 
@@ -124,9 +125,9 @@ TEST(BindTest, BoundTaskNormalizesVoidReturnAsSuccess) {
         },
         yorch::from_ctx<int>());
 
-    const auto result = task(exec);
+    static_assert(std::is_void_v<decltype(task.invoke_raw(exec))>);
+    task.invoke_raw(exec);
 
-    EXPECT_TRUE(result.ok());
     EXPECT_EQ(ctx.get<int>(), 6);
 }
 
@@ -142,8 +143,26 @@ TEST(BindTest, BoundTaskCanResolveFromDirectParentSlot) {
         },
         yorch::from_prev<int>());
 
-    const auto result = task(exec);
+    const auto result = task.invoke_raw(exec);
 
     EXPECT_TRUE(result.ok());
     EXPECT_EQ(parent_value, 8);
+}
+
+TEST(BindTest, BoundTaskPreservesTaskResultPayload) {
+    yorch::context<int> ctx(3);
+    yorch::exec_context<decltype(ctx)> exec {ctx};
+
+    auto task = yorch::bind(
+        [](int& value) -> yorch::task_result<int> {
+            value += 4;
+            return {yorch::step_result::success(), value * 2};
+        },
+        yorch::from_ctx<int>());
+
+    const auto result = task.invoke_raw(exec);
+
+    EXPECT_TRUE(result.step.ok());
+    EXPECT_EQ(result.value, 14);
+    EXPECT_EQ(ctx.get<int>(), 7);
 }

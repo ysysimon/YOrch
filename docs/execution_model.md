@@ -71,7 +71,7 @@
 
 `run_task(...)` 是当前最薄的一层执行入口。
 
-它只要求 `task(ec)` 的返回类型为 `step_result`，然后直接调用这个任务对象。参数解析和返回值规整都不在这里做。
+它只要求 `task.invoke_raw(ec)` 这一协议存在。参数解析仍然由 `bind` 完成，但返回值规整现在放在 `executor` 这一层做。
 
 ## Execution Flow
 
@@ -90,16 +90,17 @@ auto task = yorch::bind(
 1. 调用 `bind(...)`，生成一个 `bound_task<F, Specs...>`
 2. 创建 `exec_context`，把当前 `context` 和可选的 direct parent 输出借给执行过程
 3. 调用 `run_task(task, ec)`
-4. `bound_task::operator()(ec)` 按参数顺序展开每个 `spec`
+4. `bound_task::invoke_raw(ec)` 按参数顺序展开每个 `spec`
 5. 对第 `I` 个参数，先从 callable 签名中取出真实参数类型，再调用 `resolve_as<Arg>(spec, ec)`
 6. `resolve_as(...)` 从 `context`、direct parent，或者 `value_t` 中取出源对象
 7. `bind_from_lvalue(...)` 把源对象适配成 callable 需要的参数形式
 8. 调用 callable
-9. 把返回值规整成 `step_result`
+9. `run_task(...)` 把原始返回值规整成 `step_result`
 
 当前支持的返回值规整规则如下：
 
 - `step_result`：原样返回
+- `task_result<T>` / `task_result<void>`：返回其中的 `step`
 - `bool`：`true` 映射为 `success`，`false` 映射为 `failure`
 - `void`：视为 `success`
 
@@ -120,7 +121,7 @@ auto task = yorch::bind(
 - 从 `context` 或 direct parent 中取对象
 - 从 `value_t` 中读取已保存的值
 - 调用 callable
-- 生成 `step_result`
+- 在 `executor` 中把原始返回值规整成 `step_result`
 
 ## What Remains After Build
 

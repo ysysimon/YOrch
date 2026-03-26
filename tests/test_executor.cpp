@@ -55,3 +55,33 @@ TEST(ExecutorTest, RunTaskPropagatesNonSuccessStatuses) {
     EXPECT_EQ(result.status, yorch::step_status::retry);
     EXPECT_EQ(ctx.get<int>(), 10);
 }
+
+TEST(ExecutorTest, RunTaskNormalizesTaskResultPayloadCarrier) {
+    yorch::context<int> ctx(5);
+    yorch::exec_context<decltype(ctx)> exec {ctx};
+
+    auto task = yorch::bind(
+        [](int& value) -> yorch::task_result<int> {
+            value += 2;
+            return {yorch::step_result::skip(), value * 3};
+        },
+        yorch::from_ctx<int>());
+
+    const auto result = yorch::run_task(task, exec);
+
+    EXPECT_EQ(result.status, yorch::step_status::skip);
+    EXPECT_EQ(ctx.get<int>(), 7);
+}
+
+TEST(ExecutorTest, RunTaskNormalizesVoidTaskResult) {
+    yorch::exec_context<void> exec;
+
+    auto task = yorch::bind(
+        []() -> yorch::task_result<void> {
+            return {yorch::step_result::abort_chain()};
+        });
+
+    const auto result = yorch::run_task(task, exec);
+
+    EXPECT_EQ(result.status, yorch::step_status::abort_chain);
+}

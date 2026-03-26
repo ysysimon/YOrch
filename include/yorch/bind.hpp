@@ -7,7 +7,6 @@
 
 #include "context.hpp"
 #include "resolve.hpp"
-#include "result.hpp"
 
 namespace yorch::detail {
 
@@ -64,58 +63,6 @@ using nth_arg_t = typename function_traits<std::remove_cvref_t<F>>::template arg
 template <typename F>
 using result_t = typename function_traits<std::remove_cvref_t<F>>::result_type;
 
-/**
- * @brief Converts a supported task return value into `step_result`.
- *
- * Supported inputs are `step_result` itself and `bool`. `bool` is interpreted
- * as a success/failure shortcut, while unsupported return categories fail at
- * compile time.
- *
- * @tparam R Concrete return object type.
- * @param r Return value produced by a bound callable.
- * @return Normalized scheduler-facing result.
- */
-template <typename R>
-constexpr step_result normalize_result(R&& r) { // NOLINT(readability-identifier-length)
-    using raw_t = std::remove_cvref_t<R>;
-
-    if constexpr (std::is_same_v<raw_t, step_result>) {
-        return std::forward<R>(r);
-    } else if constexpr (std::is_same_v<raw_t, bool>) {
-        return r ? step_result::success()
-                 : step_result::failure();
-    } else {
-        static_assert(std::is_same_v<raw_t, void>,
-                      "Unsupported return type");
-    }
-}
-
-/**
- * @brief Invokes a callable and normalizes its completion status.
- *
- * `void` is treated as success. Non-void results are forwarded to
- * `normalize_result(...)`.
- *
- * @tparam F Callable type.
- * @tparam Args Argument types used for invocation.
- * @param f Callable to invoke.
- * @param args Concrete arguments prepared for the call.
- * @return Normalized `step_result` for the scheduler.
- */
-template <typename F, typename... Args>
-constexpr step_result invoke_and_normalize(F&& f, Args&&... args) { // NOLINT(readability-identifier-length)
-    using R = std::invoke_result_t<F, Args...>;
-
-    if constexpr (std::is_void_v<R>) {
-        std::invoke(std::forward<F>(f), std::forward<Args>(args)...);
-        return step_result::success();
-    } else {
-        return normalize_result(
-            std::invoke(std::forward<F>(f), std::forward<Args>(args)...)
-        );
-    }
-}
-
 } // namespace yorch::detail
 
 namespace yorch {
@@ -124,14 +71,17 @@ namespace yorch {
  * @brief Bound executable task composed of a callable and per-parameter specs.
  *
  * At execution time, each spec is resolved against the target parameter type
- * deduced from `F`, then the callable is invoked and its return value is
- * normalized to `step_result`.
+ * deduced from `F`, then the callable is invoked and its original return value
+ * is forwarded back to the caller.
  *
  * @tparam F Stored callable type.
  * @tparam Specs Stored spec types, one for each function parameter.
  */
 template <typename F, typename... Specs>
 struct bound_task {
+    /// Raw return type declared by the stored callable.
+    using raw_result_type = detail::result_t<F>;
+
     /// Stored callable to execute.
     F func;
 
@@ -143,17 +93,17 @@ struct bound_task {
      * @tparam Ctx Context schema used for this execution.
      * @tparam Prev Parent slot view type for this execution.
      * @param ec Borrowed execution context.
-     * @return Normalized task result.
+     * @return User callable's original return value.
      */
     template <typename Ctx, typename Prev>
-    constexpr step_result operator()(exec_context<Ctx, Prev>& ec) {
-        return call_impl(ec, std::index_sequence_for<Specs...>{});
+    constexpr decltype(auto) invoke_raw(exec_context<Ctx, Prev>& ec) {
+        return call_impl_raw(ec, std::index_sequence_for<Specs...>{});
     }
 
 private:
     template <typename Ctx, typename Prev, std::size_t... I>
-    constexpr step_result call_impl(exec_context<Ctx, Prev>& ec, std::index_sequence<I...>) {
-        return detail::invoke_and_normalize(
+    constexpr decltype(auto) call_impl_raw(exec_context<Ctx, Prev>& ec, std::index_sequence<I...>) {
+        return std::invoke(
             func,
             resolve_as<detail::nth_arg_t<I, F>>(std::get<I>(specs), ec)...
         );
