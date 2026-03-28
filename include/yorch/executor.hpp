@@ -1,4 +1,5 @@
 #pragma once
+#include <exception>
 #include <functional>
 #include <type_traits>
 #include <utility>
@@ -46,27 +47,43 @@ template <typename R>
     }
 }
 
+template <typename Policy, typename = void>
+struct policy_result;
+
 template <typename Policy>
-using policy_result_t = std::invoke_result_t<Policy&>;
+struct policy_result<Policy, std::void_t<std::invoke_result_t<Policy&, std::exception_ptr>>> {
+    using type = std::invoke_result_t<Policy&, std::exception_ptr>;
+};
+
+template <typename Policy>
+using policy_result_t = typename policy_result<Policy>::type;
+
+template <typename R, typename Policy, typename = void>
+struct catch_policy_supported : std::false_type {};
+
+template <typename R, typename Policy>
+struct catch_policy_supported<R, Policy, std::void_t<std::invoke_result_t<Policy&, std::exception_ptr>>>
+    : std::bool_constant<
+          std::is_nothrow_invocable_v<Policy&, std::exception_ptr> &&
+          (std::is_void_v<R>
+               ? (std::is_same_v<policy_result_t<Policy>, step_result> ||
+                  std::is_same_v<policy_result_t<Policy>, task_result<void>>)
+               : (!std::is_reference_v<R> &&
+                  std::is_convertible_v<policy_result_t<Policy>, R>))> {};
 
 template <typename R, typename Policy>
 inline constexpr bool catch_policy_supported_v =
-    std::is_nothrow_invocable_v<Policy&> &&
-    (std::is_void_v<R>
-         ? (std::is_same_v<policy_result_t<Policy>, step_result> ||
-            std::is_same_v<policy_result_t<Policy>, task_result<void>>)
-         : (!std::is_reference_v<R> &&
-            std::is_convertible_v<policy_result_t<Policy>, R>));
+    catch_policy_supported<R, Policy>::value;
 
 template <typename R, typename Policy>
-[[nodiscard]] constexpr auto policy_catch_failure_result(Policy& policy) noexcept {
+[[nodiscard]] inline auto policy_catch_failure_result(Policy& policy, std::exception_ptr ep) noexcept {
     static_assert(catch_policy_supported_v<R, Policy>,
-                  "catch_as_failure(task, policy) requires a noexcept fallback returning a compatible result");
+                  "catch_as_failure(task, policy) requires a noexcept fallback taking std::exception_ptr and returning a compatible result");
 
     if constexpr (std::is_void_v<R>) {
-        return std::invoke(policy);
+        return std::invoke(policy, ep);
     } else {
-        return static_cast<R>(std::invoke(policy));
+        return static_cast<R>(std::invoke(policy, ep));
     }
 }
 
@@ -94,11 +111,28 @@ concept executable_task =
         requires noexcept(std::forward<Task>(task).invoke_raw(ec));
     };
 
+template <typename Task, typename Ctx, typename Prev = no_prev>
+concept catch_wrappable_task =
+    requires(Task& task, exec_context<Ctx, Prev>& ec) {
+        task.invoke_raw(ec);
+    };
+
+template <typename Task, typename Ctx, typename Prev = no_prev>
+concept default_catchable_task =
+    catch_wrappable_task<Task, Ctx, Prev> &&
+    detail::default_catch_supported_v<detail::raw_task_result_t<Task&, Ctx, Prev>>;
+
+template <typename Task, typename Policy, typename Ctx, typename Prev = no_prev>
+concept catch_policy_compatible_task =
+    catch_wrappable_task<Task, Ctx, Prev> &&
+    detail::catch_policy_supported_v<detail::raw_task_result_t<Task&, Ctx, Prev>, Policy>;
+
 template <typename Task>
 struct catch_failure_task {
     Task task;
 
     template <typename Ctx, typename Prev>
+        requires default_catchable_task<Task, Ctx, Prev>
     constexpr auto invoke_raw(exec_context<Ctx, Prev>& ec) noexcept {
         using raw_result_t = detail::raw_task_result_t<Task&, Ctx, Prev>;
 
@@ -124,11 +158,12 @@ struct catch_failure_with_policy_task {
     Policy policy;
 
     template <typename Ctx, typename Prev>
+        requires catch_policy_compatible_task<Task, Policy, Ctx, Prev>
     constexpr auto invoke_raw(exec_context<Ctx, Prev>& ec) noexcept {
         using raw_result_t = detail::raw_task_result_t<Task&, Ctx, Prev>;
 
         static_assert(detail::catch_policy_supported_v<raw_result_t, Policy>,
-                      "catch_as_failure(task, policy) requires a noexcept fallback returning a compatible result");
+                      "catch_as_failure(task, policy) requires a noexcept fallback taking std::exception_ptr and returning a compatible result");
 
         try {
             if constexpr (std::is_void_v<raw_result_t>) {
@@ -138,7 +173,7 @@ struct catch_failure_with_policy_task {
                 return task.invoke_raw(ec);
             }
         } catch (...) {
-            return detail::policy_catch_failure_result<raw_result_t>(policy);
+            return detail::policy_catch_failure_result<raw_result_t>(policy, std::current_exception());
         }
     }
 };
