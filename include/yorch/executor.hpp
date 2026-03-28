@@ -15,14 +15,11 @@ template <typename R>
 
     if constexpr (std::is_same_v<raw_t, step_result>) {
         return std::forward<R>(r);
-    } else if constexpr (std::is_same_v<raw_t, bool>) {
-        return r ? step_result::success()
-                 : step_result::failure();
     } else if constexpr (is_task_result_v<raw_t>) {
         return std::forward<R>(r).step;
     } else {
-        static_assert(std::is_same_v<raw_t, void>,
-                      "Unsupported task return type");
+        static_cast<void>(r);
+        return step_result::success();
     }
 }
 

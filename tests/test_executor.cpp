@@ -25,18 +25,25 @@ TEST(ExecutorTest, RunTaskExecutesBoundTaskAgainstContext) {
     EXPECT_EQ(ctx.get<int>(), 7);
 }
 
-TEST(ExecutorTest, RunTaskSupportsExecContextVoid) {
+TEST(ExecutorTest, RunTaskTreatsBoolAsOrdinarySuccessfulPayload) {
     yorch::exec_context<void> exec;
 
-    auto task = yorch::bind(
+    auto true_task = yorch::bind(
         [](const std::string& value) -> bool {
             return value == "payload";
         },
         yorch::value(std::string("payload")));
 
-    const auto result = yorch::run_task(task, exec);
+    auto false_task = yorch::bind(
+        []() -> bool {
+            return false;
+        });
 
-    EXPECT_EQ(result.status, yorch::step_status::success);
+    const auto true_result = yorch::run_task(true_task, exec);
+    const auto false_result = yorch::run_task(false_task, exec);
+
+    EXPECT_EQ(true_result.status, yorch::step_status::success);
+    EXPECT_EQ(false_result.status, yorch::step_status::success);
 }
 
 TEST(ExecutorTest, RunTaskPropagatesNonSuccessStatuses) {
@@ -54,6 +61,23 @@ TEST(ExecutorTest, RunTaskPropagatesNonSuccessStatuses) {
 
     EXPECT_EQ(result.status, yorch::step_status::retry);
     EXPECT_EQ(ctx.get<int>(), 10);
+}
+
+TEST(ExecutorTest, RunTaskTreatsPlainValueReturnAsSuccess) {
+    yorch::context<int> ctx(5);
+    yorch::exec_context<decltype(ctx)> exec {ctx};
+
+    auto task = yorch::bind(
+        [](int& value) -> int {
+            value += 3;
+            return value * 2;
+        },
+        yorch::from_ctx<int>());
+
+    const auto result = yorch::run_task(task, exec);
+
+    EXPECT_EQ(result.status, yorch::step_status::success);
+    EXPECT_EQ(ctx.get<int>(), 8);
 }
 
 TEST(ExecutorTest, RunTaskNormalizesTaskResultPayloadCarrier) {

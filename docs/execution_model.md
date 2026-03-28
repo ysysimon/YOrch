@@ -101,8 +101,8 @@ auto task = yorch::bind(
 
 - `step_result`：原样返回
 - `task_result<T>` / `task_result<void>`：返回其中的 `step`
-- `bool`：`true` 映射为 `success`，`false` 映射为 `failure`
 - `void`：视为 `success`
+- 普通返回值 `T`，包括 `bool`：当前统一视为 `success`
 
 ## Compile-time vs Runtime
 
