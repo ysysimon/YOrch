@@ -4,6 +4,8 @@
 
 #include <gtest/gtest.h>
 
+#include <stdexcept>
+
 namespace {
 
 struct noexcept_task {
@@ -18,10 +20,23 @@ struct throwing_spec_task {
     }
 };
 
+struct throwing_int_source {
+    explicit throwing_int_source(int v) : value(v) {}
+
+    operator int() const {
+        throw std::runtime_error("convert");
+    }
+
+    int value;
+};
+
 }  // namespace
 
 static_assert(yorch::executable_task<noexcept_task&, void>);
 static_assert(!yorch::executable_task<throwing_spec_task&, void>);
+
+using caught_throwing_task_t = decltype(yorch::catch_as_failure(throwing_spec_task {}));
+static_assert(yorch::executable_task<caught_throwing_task_t&, void>);
 
 TEST(ExecutorTest, RunTaskExecutesBoundTaskAgainstContext) {
     yorch::context<int, long> ctx(3, 7L);
@@ -125,4 +140,72 @@ TEST(ExecutorTest, RunTaskNormalizesVoidTaskResult) {
     const auto result = yorch::run_task(task, exec);
 
     EXPECT_EQ(result.status, yorch::step_status::abort_chain);
+}
+
+TEST(ExecutorTest, CatchAsFailureMapsThrowingVoidTaskToFailure) {
+    yorch::exec_context<void> exec;
+
+    auto task = yorch::catch_as_failure(
+        yorch::bind(
+            []() {
+                throw std::runtime_error("boom");
+            }));
+
+    const auto result = yorch::run_task(task, exec);
+
+    EXPECT_EQ(result.status, yorch::step_status::failure);
+}
+
+TEST(ExecutorTest, CatchAsFailurePreservesStepResultOnSuccess) {
+    yorch::exec_context<void> exec;
+
+    auto task = yorch::catch_as_failure(
+        yorch::bind(
+            []() -> yorch::step_result {
+                return yorch::step_result::retry();
+            }));
+
+    const auto result = yorch::run_task(task, exec);
+
+    EXPECT_EQ(result.status, yorch::step_status::retry);
+}
+
+TEST(ExecutorTest, CatchAsFailureUsesFallbackPolicyForPayloadTask) {
+    yorch::exec_context<void> exec;
+
+    auto task = yorch::catch_as_failure(
+        yorch::bind(
+            []() -> yorch::task_result<int> {
+                throw std::runtime_error("boom");
+            }),
+        []() noexcept -> yorch::task_result<int> {
+            return {yorch::step_result::failure(), -1};
+        });
+
+    const auto raw = task.invoke_raw(exec);
+    const auto result = yorch::run_task(task, exec);
+
+    EXPECT_EQ(raw.step.status, yorch::step_status::failure);
+    EXPECT_EQ(raw.value, -1);
+    EXPECT_EQ(result.status, yorch::step_status::failure);
+}
+
+TEST(ExecutorTest, CatchAsFailureCanCatchResolutionExceptions) {
+    yorch::exec_context<void> exec;
+
+    auto task = yorch::catch_as_failure(
+        yorch::bind(
+            [](int value) noexcept -> int {
+                return value;
+            },
+            yorch::value(throwing_int_source {42})),
+        []() noexcept -> int {
+            return -7;
+        });
+
+    const auto raw = task.invoke_raw(exec);
+    const auto result = yorch::run_task(task, exec);
+
+    EXPECT_EQ(raw, -7);
+    EXPECT_EQ(result.status, yorch::step_status::success);
 }
