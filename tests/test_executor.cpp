@@ -4,19 +4,36 @@
 
 #include <gtest/gtest.h>
 
-#include <string>
+namespace {
+
+struct noexcept_task {
+    constexpr yorch::step_result invoke_raw(yorch::exec_context<void>&) noexcept {
+        return yorch::step_result::success();
+    }
+};
+
+struct throwing_spec_task {
+    constexpr yorch::step_result invoke_raw(yorch::exec_context<void>&) {
+        return yorch::step_result::success();
+    }
+};
+
+}  // namespace
+
+static_assert(yorch::executable_task<noexcept_task&, void>);
+static_assert(!yorch::executable_task<throwing_spec_task&, void>);
 
 TEST(ExecutorTest, RunTaskExecutesBoundTaskAgainstContext) {
-    yorch::context<int, std::string> ctx(3, "job");
+    yorch::context<int, long> ctx(3, 7L);
     yorch::exec_context<decltype(ctx)> exec {ctx};
 
     auto task = yorch::bind(
-        [](int& value, const std::string& label, int delta) -> bool {
+        [](int& value, long label, int delta) noexcept -> bool {
             value += delta;
-            return label == "job";
+            return label == 7L;
         },
         yorch::from_ctx<int>(),
-        yorch::from_ctx<std::string>(),
+        yorch::from_ctx<long>(),
         yorch::value(4));
 
     const auto result = yorch::run_task(task, exec);
@@ -29,13 +46,13 @@ TEST(ExecutorTest, RunTaskTreatsBoolAsOrdinarySuccessfulPayload) {
     yorch::exec_context<void> exec;
 
     auto true_task = yorch::bind(
-        [](const std::string& value) -> bool {
-            return value == "payload";
+        [](int value) noexcept -> bool {
+            return value == 42;
         },
-        yorch::value(std::string("payload")));
+        yorch::value(42));
 
     auto false_task = yorch::bind(
-        []() -> bool {
+        []() noexcept -> bool {
             return false;
         });
 
@@ -51,7 +68,7 @@ TEST(ExecutorTest, RunTaskPropagatesNonSuccessStatuses) {
     yorch::exec_context<decltype(ctx)> exec {ctx};
 
     auto retry_task = yorch::bind(
-        [](int& value) -> yorch::step_result {
+        [](int& value) noexcept -> yorch::step_result {
             value *= 2;
             return yorch::step_result::retry();
         },
@@ -68,7 +85,7 @@ TEST(ExecutorTest, RunTaskTreatsPlainValueReturnAsSuccess) {
     yorch::exec_context<decltype(ctx)> exec {ctx};
 
     auto task = yorch::bind(
-        [](int& value) -> int {
+        [](int& value) noexcept -> int {
             value += 3;
             return value * 2;
         },
@@ -85,7 +102,7 @@ TEST(ExecutorTest, RunTaskNormalizesTaskResultPayloadCarrier) {
     yorch::exec_context<decltype(ctx)> exec {ctx};
 
     auto task = yorch::bind(
-        [](int& value) -> yorch::task_result<int> {
+        [](int& value) noexcept -> yorch::task_result<int> {
             value += 2;
             return {yorch::step_result::skip(), value * 3};
         },
@@ -101,7 +118,7 @@ TEST(ExecutorTest, RunTaskNormalizesVoidTaskResult) {
     yorch::exec_context<void> exec;
 
     auto task = yorch::bind(
-        []() -> yorch::task_result<void> {
+        []() noexcept -> yorch::task_result<void> {
             return {yorch::step_result::abort_chain()};
         });
 

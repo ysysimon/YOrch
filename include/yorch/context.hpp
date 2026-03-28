@@ -72,7 +72,7 @@ struct prev_slot_view {
     }
 
     template <typename U>
-    constexpr stored_type& get() const {
+    constexpr stored_type& get() const noexcept {
         static_assert(contains<U>(),
                       "Requested type is not present in the direct parent slot");
         return ref;
@@ -145,28 +145,28 @@ struct context {
      * and const qualification of the current `context`.
      */
     template <typename T>
-    constexpr T& get() & {
+    constexpr T& get() & noexcept {
         static_assert(contains<T>(),
                       "T must appear exactly once in yorch::context");
         return std::get<T>(storage);
     }
 
     template <typename T>
-    constexpr const T& get() const& {
+    constexpr const T& get() const& noexcept {
         static_assert(contains<T>(),
                       "T must appear exactly once in yorch::context");
         return std::get<T>(storage);
     }
 
     template <typename T>
-    constexpr T&& get() && {
+    constexpr T&& get() && noexcept {
         static_assert(contains<T>(),
                       "T must appear exactly once in yorch::context");
         return std::get<T>(std::move(storage));
     }
 
     template <typename T>
-    constexpr const T&& get() const&& {
+    constexpr const T&& get() const&& noexcept {
         static_assert(contains<T>(),
                       "T must appear exactly once in yorch::context");
         return std::get<T>(std::move(storage));

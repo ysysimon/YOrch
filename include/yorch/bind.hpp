@@ -46,13 +46,25 @@ template <typename R, typename... Args>
 struct function_traits<R (*)(Args...)> : function_traits<R(Args...)> {};
 
 template <typename R, typename... Args>
+struct function_traits<R (*)(Args...) noexcept> : function_traits<R(Args...)> {};
+
+template <typename R, typename... Args>
 struct function_traits<R (&)(Args...)> : function_traits<R(Args...)> {};
+
+template <typename R, typename... Args>
+struct function_traits<R (&)(Args...) noexcept> : function_traits<R(Args...)> {};
 
 template <typename C, typename R, typename... Args>
 struct function_traits<R (C::*)(Args...)> : function_traits<R(Args...)> {};
 
 template <typename C, typename R, typename... Args>
+struct function_traits<R (C::*)(Args...) noexcept> : function_traits<R(Args...)> {};
+
+template <typename C, typename R, typename... Args>
 struct function_traits<R (C::*)(Args...) const> : function_traits<R(Args...)> {};
+
+template <typename C, typename R, typename... Args>
+struct function_traits<R (C::*)(Args...) const noexcept> : function_traits<R(Args...)> {};
 
 template <typename F>
 struct function_traits : function_traits<decltype(&std::remove_reference_t<F>::operator())> {};
@@ -96,13 +108,17 @@ struct bound_task {
      * @return User callable's original return value.
      */
     template <typename Ctx, typename Prev>
-    constexpr decltype(auto) invoke_raw(exec_context<Ctx, Prev>& ec) {
+    constexpr decltype(auto) invoke_raw(exec_context<Ctx, Prev>& ec)
+        noexcept(noexcept(call_impl_raw(ec, std::index_sequence_for<Specs...>{}))) {
         return call_impl_raw(ec, std::index_sequence_for<Specs...>{});
     }
 
 private:
     template <typename Ctx, typename Prev, std::size_t... I>
-    constexpr decltype(auto) call_impl_raw(exec_context<Ctx, Prev>& ec, std::index_sequence<I...>) {
+    constexpr decltype(auto) call_impl_raw(exec_context<Ctx, Prev>& ec, std::index_sequence<I...>)
+        noexcept(noexcept(std::invoke(
+            func,
+            resolve_as<detail::nth_arg_t<I, F>>(std::get<I>(specs), ec)...))) {
         return std::invoke(
             func,
             resolve_as<detail::nth_arg_t<I, F>>(std::get<I>(specs), ec)...

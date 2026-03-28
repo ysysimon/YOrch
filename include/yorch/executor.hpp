@@ -1,4 +1,5 @@
 #pragma once
+#include <concepts>
 #include <type_traits>
 #include <utility>
 
@@ -33,6 +34,9 @@ template <typename Task, typename Ctx, typename Prev = no_prev>
 concept executable_task =
     requires(Task&& task, exec_context<Ctx, Prev>& ec) {
         std::forward<Task>(task).invoke_raw(ec);
+    } &&
+    requires(Task&& task, exec_context<Ctx, Prev>& ec) {
+        requires noexcept(std::forward<Task>(task).invoke_raw(ec));
     };
 
 /**

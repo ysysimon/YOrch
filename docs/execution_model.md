@@ -71,7 +71,7 @@
 
 `run_task(...)` 是当前最薄的一层执行入口。
 
-它只要求 `task.invoke_raw(ec)` 这一协议存在。参数解析仍然由 `bind` 完成，但返回值规整现在放在 `executor` 这一层做。
+它要求 `task.invoke_raw(ec)` 这一协议存在，并且当前主路径要求该调用满足 `noexcept`。参数解析仍然由 `bind` 完成，但返回值规整现在放在 `executor` 这一层做。
 
 ## Execution Flow
 

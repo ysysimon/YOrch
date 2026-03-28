@@ -1,5 +1,6 @@
 #pragma once
 #include <type_traits>
+#include <utility>
 #include "context.hpp"
 #include "specs.hpp"
 
@@ -7,6 +8,45 @@ namespace yorch::detail {
 
 template <typename>
 inline constexpr bool always_false_v = false;
+
+template <typename Arg, typename Source>
+inline constexpr bool bind_from_lvalue_nothrow_v =
+    std::is_reference_v<Arg> ||
+    std::is_nothrow_constructible_v<std::remove_cvref_t<Arg>, Source&>;
+
+template <typename T>
+using from_ctx_source_t = typename from_ctx_t<T>::type;
+
+template <typename T>
+using from_prev_source_t = typename from_prev_t<T>::type;
+
+template <typename Ctx, typename T>
+inline constexpr bool ctx_get_nothrow_v =
+    noexcept(std::declval<Ctx&>().template get<from_ctx_source_t<T>>());
+
+template <typename Prev, typename T>
+inline constexpr bool prev_get_nothrow_v =
+    noexcept(std::declval<Prev&>().template get<from_prev_source_t<T>>());
+
+template <typename Arg, typename T, typename Ctx>
+inline constexpr bool resolve_from_ctx_nothrow_v =
+    ctx_get_nothrow_v<Ctx, T> &&
+    bind_from_lvalue_nothrow_v<Arg, from_ctx_source_t<T>>;
+
+template <typename Arg, typename T, typename Prev>
+inline constexpr bool resolve_from_prev_nothrow_v =
+    prev_get_nothrow_v<Prev, T> &&
+    bind_from_lvalue_nothrow_v<Arg, from_prev_source_t<T>>;
+
+template <typename Arg, typename T>
+inline constexpr bool resolve_value_nothrow_v =
+    std::is_reference_v<Arg> ||
+    std::is_nothrow_constructible_v<std::remove_cvref_t<Arg>, T&>;
+
+template <typename Arg, typename T>
+inline constexpr bool resolve_const_value_nothrow_v =
+    std::is_reference_v<Arg> ||
+    std::is_nothrow_constructible_v<std::remove_cvref_t<Arg>, const T&>;
 
 } // namespace yorch::detail
 
@@ -26,7 +66,8 @@ namespace yorch {
  * @return A reference or value matching `Arg`.
  */
 template <typename Arg, typename Source>
-constexpr decltype(auto) bind_from_lvalue(Source& src) {
+constexpr decltype(auto) bind_from_lvalue(Source& src)
+    noexcept(detail::bind_from_lvalue_nothrow_v<Arg, Source>) {
     static_assert(!std::is_rvalue_reference_v<Arg>,
                   "Does not support binding to T&&");
 
@@ -65,7 +106,8 @@ constexpr decltype(auto) bind_from_lvalue(Source& src) {
  * @return A reference or value matching `Arg`.
  */
 template <typename Arg, typename T, typename Ctx, typename Prev>
-constexpr decltype(auto) resolve_as(from_ctx_t<T>, exec_context<Ctx, Prev>& ec) {
+constexpr decltype(auto) resolve_as(from_ctx_t<T>, exec_context<Ctx, Prev>& ec)
+    noexcept(detail::resolve_from_ctx_nothrow_v<Arg, T, Ctx>) {
     static_assert(!std::is_void_v<Ctx>,
                   "from_ctx<T>() cannot be used with exec_context<void>");
 
@@ -94,7 +136,8 @@ constexpr decltype(auto) resolve_as(from_ctx_t<T>, exec_context<Ctx, Prev>& ec) 
  * @return A reference or value matching `Arg`.
  */
 template <typename Arg, typename T, typename Ctx, typename Prev>
-constexpr decltype(auto) resolve_as(from_prev_t<T>, exec_context<Ctx, Prev>& ec) {
+constexpr decltype(auto) resolve_as(from_prev_t<T>, exec_context<Ctx, Prev>& ec)
+    noexcept(detail::resolve_from_prev_nothrow_v<Arg, T, Prev>) {
     using source_t = typename from_prev_t<T>::type;
     using prev_t = std::remove_cvref_t<decltype(ec.prev_view())>;
 
@@ -120,7 +163,8 @@ constexpr decltype(auto) resolve_as(from_prev_t<T>, exec_context<Ctx, Prev>& ec)
  * @return A const reference or value matching `Arg`.
  */
 template <typename Arg, typename T, typename Ctx, typename Prev>
-constexpr decltype(auto) resolve_as(value_t<T>& spec, exec_context<Ctx, Prev>&) {
+constexpr decltype(auto) resolve_as(value_t<T>& spec, exec_context<Ctx, Prev>&)
+    noexcept(detail::resolve_value_nothrow_v<Arg, T>) {
     static_assert(!std::is_rvalue_reference_v<Arg>,
                   "Does not support binding value(...) to T&&");
 
@@ -154,7 +198,8 @@ constexpr decltype(auto) resolve_as(value_t<T>& spec, exec_context<Ctx, Prev>&) 
  * @return A const reference or value matching `Arg`.
  */
 template <typename Arg, typename T, typename Ctx, typename Prev>
-constexpr decltype(auto) resolve_as(const value_t<T>& spec, exec_context<Ctx, Prev>&) {
+constexpr decltype(auto) resolve_as(const value_t<T>& spec, exec_context<Ctx, Prev>&)
+    noexcept(detail::resolve_const_value_nothrow_v<Arg, T>) {
     static_assert(!std::is_rvalue_reference_v<Arg>,
                   "Does not support binding value(...) to T&&");
 
