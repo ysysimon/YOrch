@@ -174,6 +174,19 @@ template <typename PolicyResult>
 
 }  // namespace detail
 
+/**
+ * @brief Describes the main execution protocol accepted by `run_task(...)`.
+ *
+ * A task is executable on the main path only when it exposes
+ * `invoke_raw(exec_context<...>&)` and that call is itself `noexcept`.
+ * Throwing tasks are intentionally excluded from this concept; they must be
+ * adapted first, for example with `catch_as_failure(...)`, before they can be
+ * handed to the executor.
+ *
+ * @tparam Task Task object type.
+ * @tparam Ctx Context schema.
+ * @tparam Prev Direct-parent slot view type.
+ */
 template <typename Task, typename Ctx, typename Prev = no_prev>
 concept executable_task =
     requires(Task&& task, exec_context<Ctx, Prev>& ec) {
@@ -367,7 +380,10 @@ constexpr auto catch_as_failure(Task&& task, Policy&& policy) {
  *
  * In the current design, `run_task(...)` remains thin: it resolves no
  * arguments by itself and only normalizes the raw return emitted by the task's
- * `invoke_raw(...)` protocol.
+ * `invoke_raw(...)` protocol. The function intentionally accepts only the
+ * no-throw execution surface modeled by `executable_task`; potentially
+ * throwing tasks must first be wrapped into a no-throw adapter such as
+ * `catch_as_failure(...)`.
  *
  * @tparam Task Executable task type, typically `bound_task`.
  * @tparam Ctx Borrowed execution-context schema.

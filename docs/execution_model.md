@@ -73,6 +73,13 @@
 
 它要求 `task.invoke_raw(ec)` 这一协议存在，并且当前主路径要求该调用满足 `noexcept`。参数解析仍然由 `bind` 完成，但返回值规整现在放在 `executor` 这一层做。
 
+这意味着当前执行协议明确分成两层：
+
+- 主执行入口：只接受 `noexcept` task
+- 异常适配层：如果 task 或参数解析链路可能抛异常，需要先显式包上 `catch_as_failure(...)`
+
+`run_task(...)` 本身不会偷偷 catch 异常，也不会放宽到接受 throwing task。throwing task 想进入主路径，必须先被适配成重新满足 `executable_task` 的 no-throw surface。
+
 ## Execution Flow
 
 下面用一个简化示例说明执行过程：
@@ -96,6 +103,12 @@ auto task = yorch::bind(
 7. `bind_from_lvalue(...)` 把源对象适配成 callable 需要的参数形式
 8. 调用 callable
 9. `run_task(...)` 把原始返回值规整成 `step_result`
+
+如果某个 task 可能抛异常，则当前建议流程是：
+
+1. 先通过 `bind(...)` 生成 raw task
+2. 视需要包上 `catch_as_failure(...)`
+3. 再把包装后的 no-throw task 交给 `run_task(...)`
 
 当前支持的返回值规整规则如下：
 

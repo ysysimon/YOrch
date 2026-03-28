@@ -39,6 +39,11 @@ static_assert(!yorch::executable_task<throwing_spec_task&, void>);
 using caught_throwing_task_t = decltype(yorch::catch_as_failure(throwing_spec_task {}));
 static_assert(yorch::executable_task<caught_throwing_task_t&, void>);
 
+using throwing_bound_task_t = decltype(yorch::bind([]() -> yorch::step_result {
+    throw std::runtime_error("boom");
+}));
+static_assert(!yorch::executable_task<throwing_bound_task_t&, void>);
+
 using catchable_step_bound_task_t = decltype(yorch::bind([]() -> yorch::step_result {
     return yorch::step_result::success();
 }));
