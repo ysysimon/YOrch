@@ -13,7 +13,7 @@ YOrch/
       resolve.hpp
       bind.hpp
       executor.hpp
-      schedule.hpp
+      task_tree.hpp
       traits.hpp
   src/
     yorch.cpp
@@ -21,7 +21,7 @@ YOrch/
     CMakeLists.txt
     test_result.cpp
     test_bind.cpp
-    test_schedule.cpp
+    test_task_tree.cpp
   docs/
     Doxyfile.in             # Doxygen config tempalte
     index.md                # Doc index

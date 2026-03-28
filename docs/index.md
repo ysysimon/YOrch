@@ -22,7 +22,7 @@ The main public headers are located under `include/yorch/`:
 - `resolve.hpp`
 - `bind.hpp`
 - `executor.hpp`
-- `schedule.hpp`
+- `task_tree.hpp`
 - `traits.hpp`
 
 ## Additional Docs
