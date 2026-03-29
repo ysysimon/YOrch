@@ -8,11 +8,15 @@ include(CMakePackageConfigHelpers)
 option(YORCH_BUILD_TESTS "Build YOrch tests" ON)
 option(YORCH_BUILD_EXAMPLES "Build YOrch examples" ON)
 option(YORCH_BUILD_DOCS "Build YOrch API documentation with Doxygen" OFF)
+option(YORCH_ENABLE_ASSERTS "Enable YOrch asserts" ON)
 
 add_library(yorch_header_only INTERFACE)
 add_library(yorch::yorch_header_only ALIAS yorch_header_only)
 
 target_compile_features(yorch_header_only INTERFACE cxx_std_20)
+target_compile_definitions(yorch_header_only INTERFACE
+  YORCH_ENABLE_ASSERTS=$<BOOL:${YORCH_ENABLE_ASSERTS}>
+)
 target_include_directories(yorch_header_only INTERFACE
   $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
@@ -24,6 +28,9 @@ add_library(yorch
 add_library(yorch::yorch ALIAS yorch)
 
 target_compile_features(yorch PUBLIC cxx_std_20)
+target_compile_definitions(yorch PUBLIC
+  YORCH_ENABLE_ASSERTS=$<BOOL:${YORCH_ENABLE_ASSERTS}>
+)
 target_include_directories(yorch PUBLIC
   $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>

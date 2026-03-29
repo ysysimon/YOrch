@@ -1,6 +1,5 @@
 #pragma once
 
-#include <cassert>
 #include <cstddef>
 #include <memory>
 #include <new>
@@ -8,6 +7,7 @@
 #include <type_traits>
 #include <utility>
 
+#include "assert.hpp"
 #include "context.hpp"
 
 namespace yorch::detail {
@@ -60,7 +60,7 @@ struct typed_slot {
     template <typename... Args>
     constexpr T& emplace(Args&&... args)
         noexcept(std::is_nothrow_constructible_v<T, Args&&...>) {
-        assert(!engaged && "yorch::typed_slot<T>::emplace() called on a live slot");
+        YORCH_ASSERT(!engaged && "yorch::typed_slot<T>::emplace() called on a live slot");
 
         auto* object = std::construct_at(ptr(), std::forward<Args>(args)...);
         engaged = true;
@@ -68,12 +68,12 @@ struct typed_slot {
     }
 
     [[nodiscard]] constexpr T& get() & noexcept {
-        assert(engaged && "yorch::typed_slot<T>::get() called on an empty slot");
+        YORCH_ASSERT(engaged && "yorch::typed_slot<T>::get() called on an empty slot");
         return *ptr();
     }
 
     [[nodiscard]] constexpr const T& get() const& noexcept {
-        assert(engaged && "yorch::typed_slot<T>::get() called on an empty slot");
+        YORCH_ASSERT(engaged && "yorch::typed_slot<T>::get() called on an empty slot");
         return *ptr();
     }
 
