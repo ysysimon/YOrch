@@ -14,13 +14,14 @@ YOrch/
       bind.hpp
       executor.hpp
       task_tree.hpp
-      traits.hpp
+      plan.hpp
   src/
     yorch.cpp
   tests/
     CMakeLists.txt
     test_result.cpp
     test_bind.cpp
+    test_plan.cpp
     test_task_tree.cpp
   docs/
     Doxyfile.in             # Doxygen config tempalte

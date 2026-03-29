@@ -23,11 +23,12 @@ The main public headers are located under `include/yorch/`:
 - `bind.hpp`
 - `executor.hpp`
 - `task_tree.hpp`
-- `traits.hpp`
+- `plan.hpp`
 
 ## Additional Docs
 
 - `execution_model.md`
+- `design_positioning.md`
 
 ## Build Docs
 
