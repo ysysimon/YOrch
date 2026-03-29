@@ -8,3 +8,4 @@
 #include "yorch/executor.hpp" // IWYU pragma: export
 #include "yorch/task_tree.hpp" // IWYU pragma: export
 #include "yorch/plan.hpp" // IWYU pragma: export
+#include "yorch/slots.hpp" // IWYU pragma: export
