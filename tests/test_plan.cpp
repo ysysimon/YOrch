@@ -21,6 +21,10 @@ constexpr auto make_void_task() {
     return yorch::bind([]() noexcept {});
 }
 
+struct rawless_task {
+    void invoke_raw(yorch::exec_context<void>&) noexcept {}
+};
+
 } // namespace
 
 TEST(PlanTest, CompilePlanRecoversParentChildStructureAndOutputMetadata) {
@@ -113,6 +117,15 @@ TEST(PlanTest, CompilePlanPreservesMoveOnlyTasksWhenConsumingBuilder) {
 TEST(PlanTest, CompilePlanRejectsEmptyTaskTree) {
     static_assert(!can_compile_plan<decltype(yorch::task_tree)&>,
                   "compile_plan should reject an empty task_tree_builder");
+
+    SUCCEED();
+}
+
+TEST(PlanTest, CompilePlanRejectsTasksWithoutDeclaredRawResultType) {
+    auto tree = yorch::task_tree.root(rawless_task {});
+
+    static_assert(!can_compile_plan<decltype(tree)&>,
+                  "compile_plan should reject tasks that do not expose raw_result_type");
 
     SUCCEED();
 }

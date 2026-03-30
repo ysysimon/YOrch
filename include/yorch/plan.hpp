@@ -6,7 +6,6 @@
 #include <type_traits>
 #include <utility>
 
-#include "executor.hpp"
 #include "result.hpp"
 #include "task_tree.hpp"
 
@@ -20,12 +19,8 @@ namespace yorch::detail {
  * normalization is applied.
  *
  * The primary template intentionally provides no `type`. Concrete behavior is
- * supplied through partial specializations for:
- *
- * - tasks that declare `raw_result_type` directly
- * - exception wrappers such as `catch_failure_task<Task>`
- * - policy-based wrappers such as
- *   `catch_failure_with_policy_task<Task, Policy>`
+ * supplied by opt-in specializations or, in the common case, by tasks that
+ * declare `raw_result_type` directly.
  *
  * @tparam Task Task type being analyzed.
  * @tparam SFINAE hook used for detection-based specialization.
@@ -51,73 +46,6 @@ struct task_raw_result<Task, std::void_t<typename std::remove_cvref_t<Task>::raw
 };
 
 /**
- * @brief Deduces the raw return exposed by `catch_failure_task<Task>`.
- *
- * The wrapper's public raw return depends on the wrapped task:
- *
- * - if the inner task returns `void`, the wrapper turns both success and
- *   failure paths into `step_result`, so the resulting raw type is
- *   `step_result`
- * - if the inner task already returns a non-void raw type, the wrapper only
- *   catches exceptions and preserves that return category
- *
- * This specialization therefore recursively queries `task_raw_result<Task>` to
- * recover the wrapped task's `inner_type`, then applies the wrapper-specific
- * rewrite rule on top.
- *
- * @tparam Task Task type wrapped by `catch_failure_task`.
- */
-template <typename Task>
-struct task_raw_result<
-    catch_failure_task<Task>,
-    std::void_t<typename task_raw_result<std::remove_cvref_t<Task>>::type>
-> {
-    using inner_type = typename task_raw_result<std::remove_cvref_t<Task>>::type;
-    using type = std::conditional_t<std::is_void_v<inner_type>, step_result, inner_type>;
-};
-
-/**
- * @brief Deduces the raw return exposed by
- * `catch_failure_with_policy_task<Task, Policy>`.
- *
- * This wrapper depends on two compile-time facts:
- *
- * - the inner task's raw return type
- * - the fallback policy's result type
- *
- * Its rule is:
- *
- * - if the inner task returns `void`, the wrapper's raw return is determined by
- *   the policy, because both success and exception paths must use the policy's
- *   result shape
- * - if the inner task already returns a non-void raw type, the wrapper keeps
- *   that raw type and only requires the policy to produce a compatible
- *   exception-path value
- *
- * The `std::void_t<...>` here performs both checks up front:
- *
- * - `task_raw_result<Task>::type` must be recursively available
- * - `policy_result_t<Policy>` must exist
- *
- * Only when both are valid does this specialization participate in matching.
- *
- * @tparam Task Task type wrapped by the policy-aware exception adapter.
- * @tparam Policy Fallback exception policy type.
- */
-template <typename Task, typename Policy>
-struct task_raw_result<
-    catch_failure_with_policy_task<Task, Policy>,
-    std::void_t<
-        typename task_raw_result<std::remove_cvref_t<Task>>::type,
-        detail::policy_result_t<std::remove_cvref_t<Policy>>
-    >
-> {
-    using inner_type = typename task_raw_result<std::remove_cvref_t<Task>>::type;
-    using policy_type = detail::policy_result_t<std::remove_cvref_t<Policy>>;
-    using type = std::conditional_t<std::is_void_v<inner_type>, policy_type, inner_type>;
-};
-
-/**
  * @brief Convenience alias for a task's raw return type.
  *
  * This avoids repeatedly spelling `typename task_raw_result<T>::type`.
@@ -126,6 +54,12 @@ struct task_raw_result<
  */
 template <typename Task>
 using task_raw_result_t = typename task_raw_result<Task>::type;
+
+template <typename Task>
+concept plannable_task =
+    requires {
+        typename task_raw_result<std::remove_cvref_t<Task>>::type;
+    };
 
 template <typename R>
 struct task_output_type_impl {
@@ -299,6 +233,17 @@ template <typename... Nodes>
 inline constexpr auto compiled_slot_indices_v =
     make_slot_index_array<sizeof...(Nodes)>();
 
+template <typename Node>
+concept plannable_plan_node =
+    requires {
+        typename Node::task_type;
+    } &&
+    plannable_task<typename Node::task_type>;
+
+template <typename... Nodes>
+concept plannable_plan_nodes =
+    (plannable_plan_node<Nodes> && ...);
+
 } // namespace yorch::detail
 
 namespace yorch {
@@ -395,7 +340,8 @@ struct compiled_plan {
  * @return A `compiled_plan` carrying the same node tuple and static metadata.
  */
 template <typename... Nodes>
-    requires (sizeof...(Nodes) > 0)
+    requires (sizeof...(Nodes) > 0) &&
+             detail::plannable_plan_nodes<Nodes...>
 [[nodiscard]] constexpr auto compile_plan(task_tree_builder<Nodes...>&& tree) {
     return compiled_plan<Nodes...> {
         std::move(tree.nodes)
@@ -403,7 +349,8 @@ template <typename... Nodes>
 }
 
 template <typename... Nodes>
-    requires (sizeof...(Nodes) > 0)
+    requires (sizeof...(Nodes) > 0) &&
+             detail::plannable_plan_nodes<Nodes...>
 [[nodiscard]] constexpr auto compile_plan(const task_tree_builder<Nodes...>& tree) {
     return compiled_plan<Nodes...> {
         tree.nodes
