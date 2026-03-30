@@ -10,9 +10,20 @@ template <typename>
 inline constexpr bool always_false_v = false;
 
 template <typename Arg, typename Source>
+inline constexpr bool supports_bind_from_lvalue_v =
+    !std::is_rvalue_reference_v<Arg> &&
+    (
+        std::is_reference_v<Arg> ||
+        std::is_constructible_v<std::remove_cvref_t<Arg>, Source&>
+    );
+
+template <typename Arg, typename Source>
 inline constexpr bool bind_from_lvalue_nothrow_v =
-    std::is_reference_v<Arg> ||
-    std::is_nothrow_constructible_v<std::remove_cvref_t<Arg>, Source&>;
+    supports_bind_from_lvalue_v<Arg, Source> &&
+    (
+        std::is_reference_v<Arg> ||
+        std::is_nothrow_constructible_v<std::remove_cvref_t<Arg>, Source&>
+    );
 
 template <typename T>
 using from_ctx_source_t = typename from_ctx_t<T>::type;
@@ -52,6 +63,40 @@ inline constexpr bool resolve_const_value_nothrow_v =
 
 namespace yorch {
 
+template <typename Arg, typename Source>
+concept bindable_from_lvalue =
+    detail::supports_bind_from_lvalue_v<Arg, Source>;
+
+template <typename Arg, typename T>
+concept resolvable_mutable_value =
+    !std::is_rvalue_reference_v<Arg> &&
+    (
+        (
+            std::is_reference_v<Arg> &&
+            std::is_const_v<std::remove_reference_t<Arg>> &&
+            std::is_convertible_v<T&, const std::remove_cvref_t<Arg>&>
+        ) ||
+        (
+            !std::is_reference_v<Arg> &&
+            std::is_constructible_v<std::remove_cvref_t<Arg>, T&>
+        )
+    );
+
+template <typename Arg, typename T>
+concept resolvable_const_value =
+    !std::is_rvalue_reference_v<Arg> &&
+    (
+        (
+            std::is_reference_v<Arg> &&
+            std::is_const_v<std::remove_reference_t<Arg>> &&
+            std::is_convertible_v<const T&, const std::remove_cvref_t<Arg>&>
+        ) ||
+        (
+            !std::is_reference_v<Arg> &&
+            std::is_constructible_v<std::remove_cvref_t<Arg>, const T&>
+        )
+    );
+
 /**
  * @brief Binds an existing lvalue source object to the requested argument type.
  *
@@ -60,15 +105,22 @@ namespace yorch {
  * function supports binding to `T&`, `const T&`, and value parameters, while
  * rejecting rvalue-reference arguments.
  *
+ * Rejecting `T&&` is intentional: this helper is used for stable lvalue
+ * sources such as context entries, parent payloads, and stored `value(...)`
+ * objects. Treating those sources as rvalues would let callees move from
+ * shared or reusable state, which would make later retries or repeated
+ * invocations observe moved-from objects.
+ *
  * @tparam Arg Target function parameter type.
  * @tparam Source Concrete source object type.
  * @param src Source object to bind from.
  * @return A reference or value matching `Arg`.
  */
 template <typename Arg, typename Source>
+    requires bindable_from_lvalue<Arg, Source>
 constexpr decltype(auto) bind_from_lvalue(Source& src)
     noexcept(detail::bind_from_lvalue_nothrow_v<Arg, Source>) {
-    static_assert(!std::is_rvalue_reference_v<Arg>,
+    static_assert(detail::supports_bind_from_lvalue_v<Arg, Source>,
                   "Does not support binding to T&&");
 
     using raw_arg_t = std::remove_cvref_t<Arg>;
@@ -155,6 +207,11 @@ constexpr decltype(auto) resolve_as(from_prev_t<T>, exec_context<Ctx, Prev>& ec)
  * `value(...)` rules: value parameters are copied or converted from the stored
  * lvalue, and reference parameters must be `const T&`.
  *
+ * `T&&` is rejected here for the same reason as in `bind_from_lvalue`: a
+ * `value(...)` spec owns a reusable object, so resolving it must not silently
+ * consume that stored state and leave retries or subsequent invocations
+ * observing a moved-from payload.
+ *
  * @tparam Arg Target function parameter type.
  * @tparam T Stored value type.
  * @tparam Ctx Context type, unused for this spec category.
@@ -163,6 +220,7 @@ constexpr decltype(auto) resolve_as(from_prev_t<T>, exec_context<Ctx, Prev>& ec)
  * @return A const reference or value matching `Arg`.
  */
 template <typename Arg, typename T, typename Ctx, typename Prev>
+    requires resolvable_mutable_value<Arg, T>
 constexpr decltype(auto) resolve_as(value_t<T>& spec, exec_context<Ctx, Prev>&)
     noexcept(detail::resolve_value_nothrow_v<Arg, T>) {
     static_assert(!std::is_rvalue_reference_v<Arg>,
@@ -188,7 +246,9 @@ constexpr decltype(auto) resolve_as(value_t<T>& spec, exec_context<Ctx, Prev>&)
  *
  * This overload preserves the constness of the stored source expression. As a
  * result, reference binding is limited to `const T&`, and value construction
- * must be valid from `const T&`.
+ * must be valid from `const T&`. As with the mutable overload, `T&&` is
+ * intentionally unsupported because `value(...)` models reusable stored state,
+ * not a one-shot forwarding source.
  *
  * @tparam Arg Target function parameter type.
  * @tparam T Stored value type.
@@ -198,6 +258,7 @@ constexpr decltype(auto) resolve_as(value_t<T>& spec, exec_context<Ctx, Prev>&)
  * @return A const reference or value matching `Arg`.
  */
 template <typename Arg, typename T, typename Ctx, typename Prev>
+    requires resolvable_const_value<Arg, T>
 constexpr decltype(auto) resolve_as(const value_t<T>& spec, exec_context<Ctx, Prev>&)
     noexcept(detail::resolve_const_value_nothrow_v<Arg, T>) {
     static_assert(!std::is_rvalue_reference_v<Arg>,

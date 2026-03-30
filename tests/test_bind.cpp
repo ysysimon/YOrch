@@ -28,6 +28,18 @@ struct recorder {
     }
 };
 
+struct ref_recorder {
+    int* seen_value = nullptr;
+    const std::string* seen_label = nullptr;
+
+    yorch::step_result operator()(int& value, const std::string& label) {
+        seen_value = &value;
+        seen_label = &label;
+        value += 2;
+        return yorch::step_result::success();
+    }
+};
+
 }  // namespace
 
 TEST(BindTest, FunctionTraitsSupportFreeFunctionsAndLambdas) {
@@ -77,6 +89,25 @@ TEST(BindTest, BoundTaskResolvesSpecsUsingCallableSignature) {
     EXPECT_EQ(task.func.seen_label, &ctx.get<std::string>());
     EXPECT_EQ(ctx.get<int>(), 7);
     EXPECT_EQ(result.status, yorch::step_status::retry);
+}
+
+TEST(BindTest, BoundTaskBorrowsContextObjectsByReferenceWhenCallableExpectsReferences) {
+    yorch::context<int, std::string> ctx(3, "job");
+    yorch::exec_context<decltype(ctx)> exec {ctx};
+
+    auto task = yorch::bind(
+        ref_recorder {},
+        yorch::from_ctx<int>(),
+        yorch::from_ctx<std::string>());
+
+    const auto result = task.invoke_raw(exec);
+
+    ASSERT_NE(task.func.seen_value, nullptr);
+    ASSERT_NE(task.func.seen_label, nullptr);
+    EXPECT_EQ(task.func.seen_value, &ctx.get<int>());
+    EXPECT_EQ(task.func.seen_label, &ctx.get<std::string>());
+    EXPECT_EQ(ctx.get<int>(), 5);
+    EXPECT_TRUE(result.ok());
 }
 
 TEST(BindTest, BoundTaskPreservesRawBoolReturnValues) {
@@ -156,13 +187,14 @@ TEST(BindTest, BoundTaskPreservesTaskResultPayload) {
     auto task = yorch::bind(
         [](int& value) -> yorch::task_result<int> {
             value += 4;
-            return {yorch::step_result::success(), value * 2};
+            return yorch::task_result<int>::success(value * 2);
         },
         yorch::from_ctx<int>());
 
     const auto result = task.invoke_raw(exec);
 
     EXPECT_TRUE(result.step.ok());
-    EXPECT_EQ(result.value, 14);
+    EXPECT_TRUE(result.has_value());
+    EXPECT_EQ(result.value(), 14);
     EXPECT_EQ(ctx.get<int>(), 7);
 }

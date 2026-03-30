@@ -47,7 +47,7 @@ template <typename R>
     if constexpr (std::is_void_v<R> || std::is_same_v<R, step_result>) {
         return step_result::failure();
     } else {
-        return task_result<void>{step_result::failure()};
+        return task_result<void>::failure();
     }
 }
 
@@ -223,7 +223,7 @@ template <typename PolicyResult>
     if constexpr (std::is_same_v<PolicyResult, step_result>) {
         return step_result::success();
     } else {
-        return task_result<void>{step_result::success()};
+        return task_result<void>::success();
     }
 }
 

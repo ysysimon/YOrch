@@ -32,7 +32,7 @@ TEST(PlanTest, CompilePlanRecoversParentChildStructureAndOutputMetadata) {
             return 1;
         }))
         .node<1>(yorch::bind([]() noexcept -> yorch::task_result<std::string> {
-            return {yorch::step_result::success(), "child"};
+            return yorch::task_result<std::string>::success("child");
         }))
             .node<2>(yorch::bind([]() noexcept -> yorch::step_result {
                 return yorch::step_result::skip();

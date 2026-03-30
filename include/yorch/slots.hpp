@@ -1,14 +1,12 @@
 #pragma once
 
 #include <cstddef>
-#include <memory>
-#include <new>
 #include <tuple>
 #include <type_traits>
 #include <utility>
 
-#include "assert.hpp"
 #include "context.hpp"
+#include "detail/maybe_storage.hpp"
 
 namespace yorch::detail {
 
@@ -16,8 +14,8 @@ namespace yorch::detail {
  * @brief Fixed in-place payload slot for one statically known node output type.
  *
  * `typed_slot<T>` is a small storage primitive used by plan-compiled execution.
- * It owns raw storage for exactly one `T`, then explicitly starts and ends the
- * payload lifetime with `emplace(...)` and `destroy()`.
+ * It owns exactly one optional in-place `T`, then explicitly starts and ends
+ * the payload lifetime with `emplace(...)` and `destroy()`.
  *
  * This is intentionally not modeled as "allocate a `T` with runtime `new`":
  * the slot itself is part of the static plan shape, while the payload object is
@@ -39,9 +37,7 @@ struct typed_slot {
     typed_slot(typed_slot&&) = delete;
     typed_slot& operator=(typed_slot&&) = delete;
 
-    ~typed_slot() {
-        destroy();
-    }
+    ~typed_slot() = default;
 
     /**
      * @brief Constructs a `T` in this slot's in-place storage.
@@ -59,51 +55,28 @@ struct typed_slot {
      */
     template <typename... Args>
     constexpr T& emplace(Args&&... args)
-        noexcept(std::is_nothrow_constructible_v<T, Args&&...>) {
-        YORCH_ASSERT(!engaged && "yorch::typed_slot<T>::emplace() called on a live slot");
-
-        auto* object = std::construct_at(ptr(), std::forward<Args>(args)...);
-        engaged = true;
-        return *object;
+        noexcept(noexcept(storage_.emplace(std::forward<Args>(args)...))) {
+        return storage_.emplace(std::forward<Args>(args)...);
     }
 
     [[nodiscard]] constexpr T& get() & noexcept {
-        YORCH_ASSERT(engaged && "yorch::typed_slot<T>::get() called on an empty slot");
-        return *ptr();
+        return storage_.get();
     }
 
     [[nodiscard]] constexpr const T& get() const& noexcept {
-        YORCH_ASSERT(engaged && "yorch::typed_slot<T>::get() called on an empty slot");
-        return *ptr();
+        return storage_.get();
     }
 
     constexpr void destroy() noexcept {
-        if (!engaged) {
-            return;
-        }
-
-        std::destroy_at(ptr());
-        engaged = false;
+        storage_.destroy();
     }
 
     [[nodiscard]] constexpr bool has_value() const noexcept {
-        return engaged;
+        return storage_.has_value();
     }
 
 private:
-    [[nodiscard]] constexpr T* ptr() noexcept {
-        return std::launder(reinterpret_cast<T*>(storage));
-    }
-
-    [[nodiscard]] constexpr const T* ptr() const noexcept {
-        return std::launder(reinterpret_cast<const T*>(storage));
-    }
-    
-    /// Raw in-place storage for one `T`; kept as a plain byte buffer instead
-    /// of `std::array` because this member models object storage, not a byte container.
-    // NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays, modernize-avoid-c-arrays)
-    alignas(T) std::byte storage[sizeof(T)] {};
-    bool engaged = false;
+    detail::maybe_storage<T> storage_ {};
 };
 
 template <>

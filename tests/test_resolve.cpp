@@ -34,6 +34,29 @@ TEST(ResolveTest, BindFromLvalueCopiesValueArguments) {
     EXPECT_EQ(copied, 5);
 }
 
+TEST(ResolveTest, BindFromLvalueRejectsRvalueReferenceTargets) {
+    static_assert(!yorch::detail::supports_bind_from_lvalue_v<int&&, int>);
+    static_assert(!yorch::detail::supports_bind_from_lvalue_v<std::string&&, std::string>);
+    static_assert(!yorch::bindable_from_lvalue<int&&, int>);
+    static_assert(yorch::detail::supports_bind_from_lvalue_v<int&, int>);
+    static_assert(yorch::detail::supports_bind_from_lvalue_v<const std::string&, std::string>);
+    static_assert(yorch::detail::supports_bind_from_lvalue_v<std::string, std::string>);
+    static_assert(yorch::bindable_from_lvalue<std::string, std::string>);
+
+    SUCCEED();
+}
+
+TEST(ResolveTest, ValueConceptsRejectRvalueReferenceTargets) {
+    static_assert(!yorch::resolvable_mutable_value<std::string&&, std::string>);
+    static_assert(!yorch::resolvable_const_value<std::string&&, std::string>);
+    static_assert(yorch::resolvable_mutable_value<const std::string&, std::string>);
+    static_assert(yorch::resolvable_mutable_value<std::string, std::string>);
+    static_assert(yorch::resolvable_const_value<const std::string&, std::string>);
+    static_assert(yorch::resolvable_const_value<std::string, std::string>);
+
+    SUCCEED();
+}
+
 TEST(ResolveTest, ResolveFromContextBorrowsOrCopiesAccordingToArg) {
     yorch::context<int, std::string> ctx(3, "job");
     yorch::exec_context<decltype(ctx)> exec {ctx};

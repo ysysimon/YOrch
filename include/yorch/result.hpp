@@ -1,5 +1,9 @@
 #pragma once
+#include <utility>
 #include <type_traits>
+
+#include "yorch/assert.hpp"
+#include "yorch/detail/maybe_storage.hpp"
 
 namespace yorch {
 
@@ -69,25 +73,97 @@ struct step_result {
 };
 
 /**
- * @brief Represents a step result that also carries a produced value.
+ * @brief Represents a step result that may carry a produced value.
  *
  * `task_result<T>` models a value produced by a task and intended to flow through
  * the execution pipeline. `T` must be a non-reference type so the result keeps
  * clear value semantics instead of exposing an alias to external storage.
  *
+ * In the current contract, only `success` results may carry a payload.
+ * All non-success states are value-less and therefore do not require
+ * constructing a placeholder `T`.
+ *
  * @tparam T Value type produced by the task. Must not be a reference type.
  */
 template <typename T>
 struct task_result {
-    static_assert(!std::is_reference_v<T>, "yorch::task_result<T> does not support reference types");
+    static_assert(!std::is_reference_v<T>,
+                  "yorch::task_result<T> does not support reference types");
 
+public:
     /// Value type carried by this result wrapper.
     using value_type = T;
 
+    task_result() = delete;
+    task_result(const task_result&) = default;
+    task_result(task_result&&) = default;
+    task_result& operator=(const task_result&) = default;
+    task_result& operator=(task_result&&) = default;
+    ~task_result() = default;
+
     /** @brief Execution status of the current step. */
     step_result step {};
-    /** @brief Value produced by the current task. */
-    T value;
+
+    template <typename U>
+    [[nodiscard]] static constexpr task_result success(U&& value)
+        noexcept(std::is_nothrow_constructible_v<T, U&&>) {
+        return task_result(step_result::success(), std::forward<U>(value));
+    }
+
+    [[nodiscard]] static constexpr task_result failure() noexcept {
+        return from_step(step_result::failure());
+    }
+
+    [[nodiscard]] static constexpr task_result skip() noexcept {
+        return from_step(step_result::skip());
+    }
+
+    [[nodiscard]] static constexpr task_result retry() noexcept {
+        return from_step(step_result::retry());
+    }
+
+    [[nodiscard]] static constexpr task_result abort_chain() noexcept {
+        return from_step(step_result::abort_chain());
+    }
+
+    [[nodiscard]] static constexpr task_result abort_schedule() noexcept {
+        return from_step(step_result::abort_schedule());
+    }
+
+    [[nodiscard]] static constexpr task_result from_step(step_result s) noexcept {
+        YORCH_ASSERT(!s.ok() &&
+                     "yorch::task_result<T>::from_step(...) requires a non-success status");
+        return task_result(s);
+    }
+
+    [[nodiscard]] constexpr bool has_value() const noexcept {
+        return value_.has_value();
+    }
+
+    [[nodiscard]] constexpr T& value() & noexcept {
+        return value_.get();
+    }
+
+    [[nodiscard]] constexpr const T& value() const& noexcept {
+        return value_.get();
+    }
+
+    [[nodiscard]] constexpr T&& value() && noexcept {
+        return std::move(value_).get();
+    }
+
+private:
+    constexpr explicit task_result(step_result s) noexcept
+        : step(s) {}
+
+    template <typename U>
+    constexpr task_result(step_result s, U&& value)
+        noexcept(std::is_nothrow_constructible_v<T, U&&>)
+        : step(s) {
+        value_.emplace(std::forward<U>(value));
+    }
+
+    detail::maybe_storage<T> value_ {};
 };
 
 /**
@@ -102,6 +178,34 @@ struct task_result<void> {
 
     /** @brief Execution status of the current step. */
     step_result step {};
+
+    [[nodiscard]] static constexpr task_result success() noexcept {
+        return {step_result::success()};
+    }
+
+    [[nodiscard]] static constexpr task_result failure() noexcept {
+        return {step_result::failure()};
+    }
+
+    [[nodiscard]] static constexpr task_result skip() noexcept {
+        return {step_result::skip()};
+    }
+
+    [[nodiscard]] static constexpr task_result retry() noexcept {
+        return {step_result::retry()};
+    }
+
+    [[nodiscard]] static constexpr task_result abort_chain() noexcept {
+        return {step_result::abort_chain()};
+    }
+
+    [[nodiscard]] static constexpr task_result abort_schedule() noexcept {
+        return {step_result::abort_schedule()};
+    }
+
+    [[nodiscard]] static constexpr task_result from_step(step_result s) noexcept {
+        return {s};
+    }
 };
 
 /**

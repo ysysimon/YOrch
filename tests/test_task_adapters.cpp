@@ -38,15 +38,15 @@ using catchable_step_bound_task_t = decltype(yorch::bind([]() -> yorch::step_res
 }));
 
 using policy_payload_bound_task_t = decltype(yorch::bind([]() -> yorch::task_result<int> {
-    return {yorch::step_result::success(), 1};
+    return yorch::task_result<int>::success(1);
 }));
 
 using compatible_exception_policy_t = decltype([](std::exception_ptr) noexcept -> yorch::task_result<int> {
-    return {yorch::step_result::failure(), -1};
+    return yorch::task_result<int>::failure();
 });
 
 using incompatible_exception_policy_t = decltype([]() noexcept -> yorch::task_result<int> {
-    return {yorch::step_result::failure(), -1};
+    return yorch::task_result<int>::failure();
 });
 
 }  // namespace
@@ -89,17 +89,17 @@ TEST(TaskAdaptersTest, CatchAsFailureUsesFallbackPolicyForPayloadTask) {
             try {
                 std::rethrow_exception(ep);
             } catch (const std::runtime_error&) {
-                return {yorch::step_result::failure(), -1};
+                return yorch::task_result<int>::failure();
             } catch (...) {
-                return {yorch::step_result::abort_chain(), -2};
+                return yorch::task_result<int>::abort_chain();
             }
-            return {};
+            return yorch::task_result<int>::failure();
         });
 
     const auto raw = task.invoke_raw(exec);
 
     EXPECT_EQ(raw.step.status, yorch::step_status::failure);
-    EXPECT_EQ(raw.value, -1);
+    EXPECT_FALSE(raw.has_value());
 }
 
 TEST(TaskAdaptersTest, CatchAsFailureCanCatchResolutionExceptions) {
