@@ -17,8 +17,8 @@ enum class step_status : unsigned char {
     failure,
     skip,
     retry,
-    abort_chain,
-    abort_schedule,
+    abort_branch,
+    abort_execution,
 };
 
 /**
@@ -51,14 +51,14 @@ struct step_result {
         return {step_status::retry};
     }
 
-    /** @brief Creates a result that aborts the current chain. */
-    [[nodiscard]] static constexpr step_result abort_chain() noexcept {
-        return {step_status::abort_chain};
+    /** @brief Creates a result that aborts the current branch. */
+    [[nodiscard]] static constexpr step_result abort_branch() noexcept {
+        return {step_status::abort_branch};
     }
 
-    /** @brief Creates a result that aborts the whole schedule. */
-    [[nodiscard]] static constexpr step_result abort_schedule() noexcept {
-        return {step_status::abort_schedule};
+    /** @brief Creates a result that aborts the whole execution. */
+    [[nodiscard]] static constexpr step_result abort_execution() noexcept {
+        return {step_status::abort_execution};
     }
 
     /** @brief Returns whether the status is `success`. */
@@ -122,12 +122,12 @@ public:
         return from_step(step_result::retry());
     }
 
-    [[nodiscard]] static constexpr task_result abort_chain() noexcept {
-        return from_step(step_result::abort_chain());
+    [[nodiscard]] static constexpr task_result abort_branch() noexcept {
+        return from_step(step_result::abort_branch());
     }
 
-    [[nodiscard]] static constexpr task_result abort_schedule() noexcept {
-        return from_step(step_result::abort_schedule());
+    [[nodiscard]] static constexpr task_result abort_execution() noexcept {
+        return from_step(step_result::abort_execution());
     }
 
     [[nodiscard]] static constexpr task_result from_step(step_result s) noexcept {
@@ -195,12 +195,12 @@ struct task_result<void> {
         return {step_result::retry()};
     }
 
-    [[nodiscard]] static constexpr task_result abort_chain() noexcept {
-        return {step_result::abort_chain()};
+    [[nodiscard]] static constexpr task_result abort_branch() noexcept {
+        return {step_result::abort_branch()};
     }
 
-    [[nodiscard]] static constexpr task_result abort_schedule() noexcept {
-        return {step_result::abort_schedule()};
+    [[nodiscard]] static constexpr task_result abort_execution() noexcept {
+        return {step_result::abort_execution()};
     }
 
     [[nodiscard]] static constexpr task_result from_step(step_result s) noexcept {

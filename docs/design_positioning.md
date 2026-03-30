@@ -52,7 +52,7 @@ input -> transform -> output
 - 从 `context` 中借用长期共享对象
 - 通过 `T&` 修改状态
 - 在 task 内执行 `side effect`
-- 使用异常适配、`retry`、`abort_chain` 等控制流能力
+- 使用异常适配、`retry`、`abort_branch` 等控制流能力
 
 因此更准确的说法是：
 
@@ -109,4 +109,3 @@ input -> transform -> output
 - 把短期派生值交给返回值和 `from_prev`
 - 尽量避免让 task 自己持有复杂、长生命周期、强可变的内部状态
 - 把“数据如何流动”交给编排层，而不是靠隐式约定
-

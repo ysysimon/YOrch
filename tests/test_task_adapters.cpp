@@ -91,7 +91,7 @@ TEST(TaskAdaptersTest, CatchAsFailureUsesFallbackPolicyForPayloadTask) {
             } catch (const std::runtime_error&) {
                 return yorch::task_result<int>::failure();
             } catch (...) {
-                return yorch::task_result<int>::abort_chain();
+                return yorch::task_result<int>::abort_branch();
             }
             return yorch::task_result<int>::failure();
         });

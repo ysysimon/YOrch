@@ -138,12 +138,12 @@ TEST(ExecutorTest, RunTaskNormalizesVoidTaskResult) {
 
     auto task = yorch::bind(
         []() noexcept -> yorch::task_result<void> {
-            return yorch::task_result<void>::abort_chain();
+            return yorch::task_result<void>::abort_branch();
         });
 
     const auto result = yorch::run_task(task, exec);
 
-    EXPECT_EQ(result.status, yorch::step_status::abort_chain);
+    EXPECT_EQ(result.status, yorch::step_status::abort_branch);
 }
 
 TEST(ExecutorTest, RunTaskExecutesCatchAsFailureAdapterEndToEnd) {
