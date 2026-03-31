@@ -1,9 +1,13 @@
 #pragma once
 
+#include <exception>
 #include <cstddef>
 #include <tuple>
 #include <type_traits>
 #include <utility>
+
+#include "bind.hpp"
+#include "task_adapters.hpp"
 
 namespace yorch::detail {
 
@@ -61,6 +65,62 @@ struct task_tree_node {
 
 template <std::size_t Level, typename Task>
 using task_tree_node_t = task_tree_node<Level, std::decay_t<Task>>;
+
+/**
+ * @brief Reports whether `F` exposes callable signature metadata understood by
+ * `bind(...)`.
+ *
+ * The task-tree convenience APIs reuse the same signature introspection path
+ * as `yorch::bind(...)`. Before those helpers can forward a callable into
+ * `bind(...)`, they first need to know whether `function_traits<F>` is
+ * well-formed and publishes an `arity` member. This concept acts as that
+ * early structural gate, so unsupported callables are rejected during overload
+ * selection rather than later from deeper template instantiations.
+ *
+ * @tparam F Candidate callable type.
+ */
+template <typename F>
+concept bind_callable =
+    requires {
+        { function_traits<std::remove_cvref_t<F>>::arity } -> std::convertible_to<std::size_t>;
+    };
+
+/**
+ * @brief Reports whether `F` and `Specs...` can form a valid `bind(...)`
+ * invocation.
+ *
+ * In addition to requiring a callable signature that `bind(...)` can inspect,
+ * the convenience APIs also need the same arity check enforced by
+ * `yorch::bind(...)`: there must be exactly one spec per function parameter.
+ * Encoding that rule here keeps the builder overload set narrow and produces
+ * earlier diagnostics when users pass the wrong number of specs.
+ *
+ * @tparam F Candidate callable type.
+ * @tparam Specs Candidate binding spec types.
+ */
+template <typename F, typename... Specs>
+concept bind_signature_matches =
+    bind_callable<F> &&
+    function_traits<std::remove_cvref_t<F>>::arity == sizeof...(Specs);
+
+/**
+ * @brief Reports whether `Policy` looks like a `catch_as_failure(...)`
+ * fallback policy.
+ *
+ * The single-layer task-tree sugar provides both
+ * `catch_as_failure(callable, specs...)` and
+ * `catch_as_failure(policy, callable, specs...)` forms. This concept helps the
+ * overload set distinguish those two cases by checking for the core policy
+ * contract used by the underlying adapter: the object must be invocable as
+ * `policy(std::exception_ptr)` and that call itself must be `noexcept`.
+ *
+ * @tparam Policy Candidate fallback policy type.
+ */
+template <typename Policy>
+concept catch_policy_like =
+    requires(Policy& policy, std::exception_ptr ep) {
+        { policy(ep) } noexcept;
+    };
 
 } // namespace yorch::detail
 
@@ -122,6 +182,191 @@ struct task_tree_builder {
     }
 
     /**
+     * @brief Binds a callable and appends it as the root node.
+     *
+     * This is convenience syntax for `root(yorch::bind(f, specs...))`.
+     *
+     * @tparam F Callable type.
+     * @tparam Specs Binding spec types.
+     * @param f Callable to bind.
+     * @param specs Binding specs in call order.
+     * @return A new builder whose root stores the bound task.
+     */
+    template <typename F, typename... Specs>
+        requires (sizeof...(Nodes) == 0) && detail::bind_signature_matches<F, Specs...>
+    [[nodiscard]] constexpr auto root_bind(F&& f, Specs&&... specs) const& {
+        return root(yorch::bind(std::forward<F>(f), std::forward<Specs>(specs)...));
+    }
+
+    /**
+     * @brief Binds a callable and appends it as the root node, moving prior state.
+     *
+     * This is convenience syntax for `root(yorch::bind(f, specs...))`.
+     *
+     * @tparam F Callable type.
+     * @tparam Specs Binding spec types.
+     * @param f Callable to bind.
+     * @param specs Binding specs in call order.
+     * @return A new builder whose root stores the bound task.
+     */
+    template <typename F, typename... Specs>
+        requires (sizeof...(Nodes) == 0) && detail::bind_signature_matches<F, Specs...>
+    [[nodiscard]] constexpr auto root_bind(F&& f, Specs&&... specs) && {
+        return std::move(*this).template node<0>(
+            yorch::bind(std::forward<F>(f), std::forward<Specs>(specs)...));
+    }
+
+    /**
+     * @brief Appends a root node wrapped in default `catch_as_failure(...)`.
+     *
+     * This is convenience syntax for
+     * `root(yorch::catch_as_failure(yorch::bind(f, specs...)))`.
+     *
+     * @tparam F Callable type.
+     * @tparam Specs Binding spec types.
+     * @param f Callable to bind and wrap.
+     * @param specs Binding specs in call order.
+     * @return A new builder whose root stores the adapted bound task.
+     */
+    template <typename F, typename... Specs>
+        requires (sizeof...(Nodes) == 0) &&
+                 detail::bind_signature_matches<F, Specs...> &&
+                 (!detail::catch_policy_like<std::remove_reference_t<F>>)
+    [[nodiscard]] constexpr auto root_catch_as_failure(F&& f, Specs&&... specs) const& {
+        return root(yorch::catch_as_failure(
+            yorch::bind(std::forward<F>(f), std::forward<Specs>(specs)...)));
+    }
+
+    /**
+     * @brief Appends a root node wrapped in default `catch_as_failure(...)`, moving prior state.
+     *
+     * This is convenience syntax for
+     * `root(yorch::catch_as_failure(yorch::bind(f, specs...)))`.
+     *
+     * @tparam F Callable type.
+     * @tparam Specs Binding spec types.
+     * @param f Callable to bind and wrap.
+     * @param specs Binding specs in call order.
+     * @return A new builder whose root stores the adapted bound task.
+     */
+    template <typename F, typename... Specs>
+        requires (sizeof...(Nodes) == 0) &&
+                 detail::bind_signature_matches<F, Specs...> &&
+                 (!detail::catch_policy_like<std::remove_reference_t<F>>)
+    [[nodiscard]] constexpr auto root_catch_as_failure(F&& f, Specs&&... specs) && {
+        return std::move(*this).template node<0>(yorch::catch_as_failure(
+            yorch::bind(std::forward<F>(f), std::forward<Specs>(specs)...)));
+    }
+
+    /**
+     * @brief Appends a root node wrapped in policy-based `catch_as_failure(...)`.
+     *
+     * This is convenience syntax for
+     * `root(yorch::catch_as_failure(yorch::bind(f, specs...), policy))`.
+     *
+     * @tparam Policy Exception fallback policy type.
+     * @tparam F Callable type.
+     * @tparam Specs Binding spec types.
+     * @param policy Fallback policy invoked on exception.
+     * @param f Callable to bind and wrap.
+     * @param specs Binding specs in call order.
+     * @return A new builder whose root stores the adapted bound task.
+     */
+    template <typename Policy, typename F, typename... Specs>
+        requires (sizeof...(Nodes) == 0) &&
+                 detail::catch_policy_like<std::remove_reference_t<Policy>> &&
+                 detail::bind_signature_matches<F, Specs...>
+    [[nodiscard]] constexpr auto root_catch_as_failure(
+        Policy&& policy,
+        F&& f,
+        Specs&&... specs) const& {
+        return root(yorch::catch_as_failure(
+            yorch::bind(std::forward<F>(f), std::forward<Specs>(specs)...),
+            std::forward<Policy>(policy)));
+    }
+
+    /**
+     * @brief Appends a root node wrapped in policy-based `catch_as_failure(...)`, moving prior state.
+     *
+     * This is convenience syntax for
+     * `root(yorch::catch_as_failure(yorch::bind(f, specs...), policy))`.
+     *
+     * @tparam Policy Exception fallback policy type.
+     * @tparam F Callable type.
+     * @tparam Specs Binding spec types.
+     * @param policy Fallback policy invoked on exception.
+     * @param f Callable to bind and wrap.
+     * @param specs Binding specs in call order.
+     * @return A new builder whose root stores the adapted bound task.
+     */
+    template <typename Policy, typename F, typename... Specs>
+        requires (sizeof...(Nodes) == 0) &&
+                 detail::catch_policy_like<std::remove_reference_t<Policy>> &&
+                 detail::bind_signature_matches<F, Specs...>
+    [[nodiscard]] constexpr auto root_catch_as_failure(
+        Policy&& policy,
+        F&& f,
+        Specs&&... specs) && {
+        return std::move(*this).template node<0>(yorch::catch_as_failure(
+            yorch::bind(std::forward<F>(f), std::forward<Specs>(specs)...),
+            std::forward<Policy>(policy)));
+    }
+
+    /**
+     * @brief Appends a root node wrapped in `with_retry(...)`.
+     *
+     * This is convenience syntax for
+     * `root(yorch::with_retry(yorch::bind(f, specs...), policy))`.
+     *
+     * @tparam Policy Retry policy type.
+     * @tparam F Callable type.
+     * @tparam Specs Binding spec types.
+     * @param policy Retry policy controlling repeated execution.
+     * @param f Callable to bind and wrap.
+     * @param specs Binding specs in call order.
+     * @return A new builder whose root stores the adapted bound task.
+     */
+    template <typename Policy, typename F, typename... Specs>
+        requires (sizeof...(Nodes) == 0) &&
+                 retry_policy<std::decay_t<Policy>> &&
+                 detail::bind_signature_matches<F, Specs...>
+    [[nodiscard]] constexpr auto root_with_retry(
+        Policy&& policy,
+        F&& f,
+        Specs&&... specs) const& {
+        return root(yorch::with_retry(
+            yorch::bind(std::forward<F>(f), std::forward<Specs>(specs)...),
+            std::forward<Policy>(policy)));
+    }
+
+    /**
+     * @brief Appends a root node wrapped in `with_retry(...)`, moving prior state.
+     *
+     * This is convenience syntax for
+     * `root(yorch::with_retry(yorch::bind(f, specs...), policy))`.
+     *
+     * @tparam Policy Retry policy type.
+     * @tparam F Callable type.
+     * @tparam Specs Binding spec types.
+     * @param policy Retry policy controlling repeated execution.
+     * @param f Callable to bind and wrap.
+     * @param specs Binding specs in call order.
+     * @return A new builder whose root stores the adapted bound task.
+     */
+    template <typename Policy, typename F, typename... Specs>
+        requires (sizeof...(Nodes) == 0) &&
+                 retry_policy<std::decay_t<Policy>> &&
+                 detail::bind_signature_matches<F, Specs...>
+    [[nodiscard]] constexpr auto root_with_retry(
+        Policy&& policy,
+        F&& f,
+        Specs&&... specs) && {
+        return std::move(*this).template node<0>(yorch::with_retry(
+            yorch::bind(std::forward<F>(f), std::forward<Specs>(specs)...),
+            std::forward<Policy>(policy)));
+    }
+
+    /**
      * @brief Appends a node onto an lvalue builder.
      *
      * Structural rules for this phase:
@@ -171,6 +416,201 @@ struct task_tree_builder {
                     next_node_t {std::forward<Task>(task)}
                 })
         };
+    }
+
+    /**
+     * @brief Binds a callable and appends it as a node at `Level`.
+     *
+     * This is convenience syntax for `node<Level>(yorch::bind(f, specs...))`.
+     *
+     * @tparam Level Compile-time tree depth of the new node.
+     * @tparam F Callable type.
+     * @tparam Specs Binding spec types.
+     * @param f Callable to bind.
+     * @param specs Binding specs in call order.
+     * @return A new builder containing the appended bound task.
+     */
+    template <std::size_t Level, typename F, typename... Specs>
+        requires (detail::append_level_valid_v<Level, Nodes...>) &&
+                 detail::bind_signature_matches<F, Specs...>
+    [[nodiscard]] constexpr auto node_bind(F&& f, Specs&&... specs) const& {
+        return node<Level>(yorch::bind(std::forward<F>(f), std::forward<Specs>(specs)...));
+    }
+
+    /**
+     * @brief Binds a callable and appends it as a node at `Level`, moving prior state.
+     *
+     * This is convenience syntax for `node<Level>(yorch::bind(f, specs...))`.
+     *
+     * @tparam Level Compile-time tree depth of the new node.
+     * @tparam F Callable type.
+     * @tparam Specs Binding spec types.
+     * @param f Callable to bind.
+     * @param specs Binding specs in call order.
+     * @return A new builder containing the appended bound task.
+     */
+    template <std::size_t Level, typename F, typename... Specs>
+        requires (detail::append_level_valid_v<Level, Nodes...>) &&
+                 detail::bind_signature_matches<F, Specs...>
+    [[nodiscard]] constexpr auto node_bind(F&& f, Specs&&... specs) && {
+        return std::move(*this).template node<Level>(
+            yorch::bind(std::forward<F>(f), std::forward<Specs>(specs)...));
+    }
+
+    /**
+     * @brief Appends a node at `Level` wrapped in default `catch_as_failure(...)`.
+     *
+     * This is convenience syntax for
+     * `node<Level>(yorch::catch_as_failure(yorch::bind(f, specs...)))`.
+     *
+     * @tparam Level Compile-time tree depth of the new node.
+     * @tparam F Callable type.
+     * @tparam Specs Binding spec types.
+     * @param f Callable to bind and wrap.
+     * @param specs Binding specs in call order.
+     * @return A new builder containing the appended adapted bound task.
+     */
+    template <std::size_t Level, typename F, typename... Specs>
+        requires (detail::append_level_valid_v<Level, Nodes...>) &&
+                 detail::bind_signature_matches<F, Specs...> &&
+                 (!detail::catch_policy_like<std::remove_reference_t<F>>)
+    [[nodiscard]] constexpr auto node_catch_as_failure(F&& f, Specs&&... specs) const& {
+        return node<Level>(yorch::catch_as_failure(
+            yorch::bind(std::forward<F>(f), std::forward<Specs>(specs)...)));
+    }
+
+    /**
+     * @brief Appends a node at `Level` wrapped in default `catch_as_failure(...)`, moving prior state.
+     *
+     * This is convenience syntax for
+     * `node<Level>(yorch::catch_as_failure(yorch::bind(f, specs...)))`.
+     *
+     * @tparam Level Compile-time tree depth of the new node.
+     * @tparam F Callable type.
+     * @tparam Specs Binding spec types.
+     * @param f Callable to bind and wrap.
+     * @param specs Binding specs in call order.
+     * @return A new builder containing the appended adapted bound task.
+     */
+    template <std::size_t Level, typename F, typename... Specs>
+        requires (detail::append_level_valid_v<Level, Nodes...>) &&
+                 detail::bind_signature_matches<F, Specs...> &&
+                 (!detail::catch_policy_like<std::remove_reference_t<F>>)
+    [[nodiscard]] constexpr auto node_catch_as_failure(F&& f, Specs&&... specs) && {
+        return std::move(*this).template node<Level>(yorch::catch_as_failure(
+            yorch::bind(std::forward<F>(f), std::forward<Specs>(specs)...)));
+    }
+
+    /**
+     * @brief Appends a node at `Level` wrapped in policy-based `catch_as_failure(...)`.
+     *
+     * This is convenience syntax for
+     * `node<Level>(yorch::catch_as_failure(yorch::bind(f, specs...), policy))`.
+     *
+     * @tparam Level Compile-time tree depth of the new node.
+     * @tparam Policy Exception fallback policy type.
+     * @tparam F Callable type.
+     * @tparam Specs Binding spec types.
+     * @param policy Fallback policy invoked on exception.
+     * @param f Callable to bind and wrap.
+     * @param specs Binding specs in call order.
+     * @return A new builder containing the appended adapted bound task.
+     */
+    template <std::size_t Level, typename Policy, typename F, typename... Specs>
+        requires (detail::append_level_valid_v<Level, Nodes...>) &&
+                 detail::catch_policy_like<std::remove_reference_t<Policy>> &&
+                 detail::bind_signature_matches<F, Specs...>
+    [[nodiscard]] constexpr auto node_catch_as_failure(
+        Policy&& policy,
+        F&& f,
+        Specs&&... specs) const& {
+        return node<Level>(yorch::catch_as_failure(
+            yorch::bind(std::forward<F>(f), std::forward<Specs>(specs)...),
+            std::forward<Policy>(policy)));
+    }
+
+    /**
+     * @brief Appends a node at `Level` wrapped in policy-based `catch_as_failure(...)`, moving prior state.
+     *
+     * This is convenience syntax for
+     * `node<Level>(yorch::catch_as_failure(yorch::bind(f, specs...), policy))`.
+     *
+     * @tparam Level Compile-time tree depth of the new node.
+     * @tparam Policy Exception fallback policy type.
+     * @tparam F Callable type.
+     * @tparam Specs Binding spec types.
+     * @param policy Fallback policy invoked on exception.
+     * @param f Callable to bind and wrap.
+     * @param specs Binding specs in call order.
+     * @return A new builder containing the appended adapted bound task.
+     */
+    template <std::size_t Level, typename Policy, typename F, typename... Specs>
+        requires (detail::append_level_valid_v<Level, Nodes...>) &&
+                 detail::catch_policy_like<std::remove_reference_t<Policy>> &&
+                 detail::bind_signature_matches<F, Specs...>
+    [[nodiscard]] constexpr auto node_catch_as_failure(
+        Policy&& policy,
+        F&& f,
+        Specs&&... specs) && {
+        return std::move(*this).template node<Level>(yorch::catch_as_failure(
+            yorch::bind(std::forward<F>(f), std::forward<Specs>(specs)...),
+            std::forward<Policy>(policy)));
+    }
+
+    /**
+     * @brief Appends a node at `Level` wrapped in `with_retry(...)`.
+     *
+     * This is convenience syntax for
+     * `node<Level>(yorch::with_retry(yorch::bind(f, specs...), policy))`.
+     *
+     * @tparam Level Compile-time tree depth of the new node.
+     * @tparam Policy Retry policy type.
+     * @tparam F Callable type.
+     * @tparam Specs Binding spec types.
+     * @param policy Retry policy controlling repeated execution.
+     * @param f Callable to bind and wrap.
+     * @param specs Binding specs in call order.
+     * @return A new builder containing the appended adapted bound task.
+     */
+    template <std::size_t Level, typename Policy, typename F, typename... Specs>
+        requires (detail::append_level_valid_v<Level, Nodes...>) &&
+                 retry_policy<std::decay_t<Policy>> &&
+                 detail::bind_signature_matches<F, Specs...>
+    [[nodiscard]] constexpr auto node_with_retry(
+        Policy&& policy,
+        F&& f,
+        Specs&&... specs) const& {
+        return node<Level>(yorch::with_retry(
+            yorch::bind(std::forward<F>(f), std::forward<Specs>(specs)...),
+            std::forward<Policy>(policy)));
+    }
+
+    /**
+     * @brief Appends a node at `Level` wrapped in `with_retry(...)`, moving prior state.
+     *
+     * This is convenience syntax for
+     * `node<Level>(yorch::with_retry(yorch::bind(f, specs...), policy))`.
+     *
+     * @tparam Level Compile-time tree depth of the new node.
+     * @tparam Policy Retry policy type.
+     * @tparam F Callable type.
+     * @tparam Specs Binding spec types.
+     * @param policy Retry policy controlling repeated execution.
+     * @param f Callable to bind and wrap.
+     * @param specs Binding specs in call order.
+     * @return A new builder containing the appended adapted bound task.
+     */
+    template <std::size_t Level, typename Policy, typename F, typename... Specs>
+        requires (detail::append_level_valid_v<Level, Nodes...>) &&
+                 retry_policy<std::decay_t<Policy>> &&
+                 detail::bind_signature_matches<F, Specs...>
+    [[nodiscard]] constexpr auto node_with_retry(
+        Policy&& policy,
+        F&& f,
+        Specs&&... specs) && {
+        return std::move(*this).template node<Level>(yorch::with_retry(
+            yorch::bind(std::forward<F>(f), std::forward<Specs>(specs)...),
+            std::forward<Policy>(policy)));
     }
 
     template <std::size_t I>
