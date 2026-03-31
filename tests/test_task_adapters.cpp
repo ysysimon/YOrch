@@ -51,9 +51,12 @@ using incompatible_exception_policy_t = decltype([]() noexcept -> yorch::task_re
 
 }  // namespace
 
-static_assert(yorch::catch_wrappable_task<throwing_spec_task&, void>);
-static_assert(!yorch::catch_wrappable_task<mismatched_declared_task&, void>);
+static_assert(yorch::adapter_wrappable_task<throwing_spec_task&, void>);
+static_assert(!yorch::adapter_wrappable_task<mismatched_declared_task&, void>);
 static_assert(yorch::default_catchable_task<catchable_step_bound_task_t, void>);
+static_assert(yorch::retry_policy<yorch::retry_fixed_policy>);
+static_assert(yorch::retry_policy<yorch::retry_fixed_passthrough_policy>);
+static_assert(yorch::retry_policy<yorch::retry_forever_policy>);
 static_assert(yorch::catch_policy_compatible_task<
               policy_payload_bound_task_t,
               compatible_exception_policy_t,
@@ -118,4 +121,124 @@ TEST(TaskAdaptersTest, CatchAsFailureCanCatchResolutionExceptions) {
     const auto raw = task.invoke_raw(exec);
 
     EXPECT_EQ(raw, -7);
+}
+
+TEST(TaskAdaptersTest, WithRetryFixedPolicyRetriesStepResultUntilSuccess) {
+    yorch::exec_context<void> exec;
+    int attempts = 0;
+
+    auto task = yorch::with_retry(
+        yorch::bind(
+            [&]() noexcept -> yorch::step_result {
+                ++attempts;
+                return attempts < 3
+                    ? yorch::step_result::retry()
+                    : yorch::step_result::success();
+            }),
+        yorch::retry_fixed_policy {4});
+
+    const auto raw = task.invoke_raw(exec);
+
+    EXPECT_EQ(raw.status, yorch::step_status::success);
+    EXPECT_EQ(attempts, 3);
+}
+
+TEST(TaskAdaptersTest, WithRetryFixedPolicyReturnsFailureWhenBudgetIsExhausted) {
+    yorch::exec_context<void> exec;
+    int attempts = 0;
+
+    auto task = yorch::with_retry(
+        yorch::bind(
+            [&]() noexcept -> yorch::step_result {
+                ++attempts;
+                return yorch::step_result::retry();
+            }),
+        yorch::retry_fixed_policy {2});
+
+    const auto raw = task.invoke_raw(exec);
+
+    EXPECT_EQ(raw.status, yorch::step_status::failure);
+    EXPECT_EQ(attempts, 3);
+}
+
+TEST(TaskAdaptersTest, WithRetryFixedPolicyPreservesPayloadResults) {
+    yorch::exec_context<void> exec;
+    int attempts = 0;
+
+    auto task = yorch::with_retry(
+        yorch::bind(
+            [&]() noexcept -> yorch::task_result<int> {
+                ++attempts;
+
+                if (attempts < 2) {
+                    return yorch::task_result<int>::retry();
+                }
+
+                return yorch::task_result<int>::success(17);
+            }),
+        yorch::retry_fixed_policy {3});
+
+    const auto raw = task.invoke_raw(exec);
+
+    EXPECT_EQ(raw.step.status, yorch::step_status::success);
+    EXPECT_TRUE(raw.has_value());
+    EXPECT_EQ(raw.value(), 17);
+    EXPECT_EQ(attempts, 2);
+}
+
+TEST(TaskAdaptersTest, WithRetryFixedPolicyConvertsPayloadRetryExhaustionToFailure) {
+    yorch::exec_context<void> exec;
+    int attempts = 0;
+
+    auto task = yorch::with_retry(
+        yorch::bind(
+            [&]() noexcept -> yorch::task_result<int> {
+                ++attempts;
+                return yorch::task_result<int>::retry();
+            }),
+        yorch::retry_fixed_policy {1});
+
+    const auto raw = task.invoke_raw(exec);
+
+    EXPECT_EQ(raw.step.status, yorch::step_status::failure);
+    EXPECT_FALSE(raw.has_value());
+    EXPECT_EQ(attempts, 2);
+}
+
+TEST(TaskAdaptersTest, WithRetryFixedPassthroughPolicyPreservesRetryWhenBudgetIsExhausted) {
+    yorch::exec_context<void> exec;
+    int attempts = 0;
+
+    auto task = yorch::with_retry(
+        yorch::bind(
+            [&]() noexcept -> yorch::step_result {
+                ++attempts;
+                return yorch::step_result::retry();
+            }),
+        yorch::retry_fixed_passthrough_policy {2});
+
+    const auto raw = task.invoke_raw(exec);
+
+    EXPECT_EQ(raw.status, yorch::step_status::retry);
+    EXPECT_EQ(attempts, 3);
+}
+
+TEST(TaskAdaptersTest, WithRetryForeverPolicyKeepsRetryingUntilSuccess) {
+    yorch::exec_context<void> exec;
+    int attempts = 0;
+
+    auto task = yorch::with_retry(
+        yorch::bind(
+            [&]() noexcept -> yorch::task_result<void> {
+                ++attempts;
+                return attempts < 4
+                    ? yorch::task_result<void>::retry()
+                    : yorch::task_result<void>::success();
+            }),
+        yorch::retry_forever_policy {});
+
+    const auto raw = task.invoke_raw(exec);
+
+    EXPECT_EQ(raw.step.status, yorch::step_status::success);
+    EXPECT_EQ(attempts, 4);
 }

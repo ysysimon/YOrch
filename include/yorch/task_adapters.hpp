@@ -1,7 +1,9 @@
 #pragma once
 
+#include <concepts>
 #include <exception>
 #include <functional>
+#include <cstddef>
 #include <type_traits>
 #include <utility>
 
@@ -151,6 +153,17 @@ struct catch_failure_with_policy_task_raw_result_base<
     using raw_result_type = std::conditional_t<std::is_void_v<inner_type>, policy_type, inner_type>;
 };
 
+template <typename Task, typename = void>
+struct retry_task_raw_result_base {};
+
+template <typename Task>
+struct retry_task_raw_result_base<
+    Task,
+    std::void_t<declared_task_raw_result_t<Task>>
+> {
+    using raw_result_type = declared_task_raw_result_t<Task>;
+};
+
 /**
  * @brief Trait that reports whether a fallback policy is compatible with raw
  * task result type `R`.
@@ -227,6 +240,59 @@ template <typename PolicyResult>
     }
 }
 
+template <typename R>
+[[nodiscard]] constexpr bool raw_result_requests_retry(R&& r) noexcept { // NOLINT(readability-identifier-length)
+    using raw_t = std::remove_cvref_t<R>;
+
+    if constexpr (std::is_same_v<raw_t, step_result>) {
+        return r.status == step_status::retry;
+    } else if constexpr (is_task_result_v<raw_t>) {
+        return r.step.status == step_status::retry;
+    } else {
+        static_cast<void>(r);
+        return false;
+    }
+}
+
+template <typename R>
+inline constexpr bool retry_status_capable_result_v =
+    std::is_same_v<std::remove_cvref_t<R>, step_result> ||
+    is_task_result_v<std::remove_cvref_t<R>>;
+
+template <typename Raw>
+[[nodiscard]] constexpr auto retry_exhausted_as_failure(Raw&& raw) noexcept {
+    using raw_t = std::remove_cvref_t<Raw>;
+
+    static_assert(retry_status_capable_result_v<raw_t>,
+                  "Retry exhaustion fallback is only valid for results that carry step_status");
+
+    static_cast<void>(raw);
+
+    if constexpr (std::is_same_v<raw_t, step_result>) {
+        return step_result::failure();
+    } else if constexpr (std::is_same_v<raw_t, task_result<void>>) {
+        return task_result<void>::failure();
+    } else {
+        return raw_t::failure();
+    }
+}
+
+template <typename Policy, typename Raw>
+concept retry_exhaustion_policy =
+    requires(const std::remove_cvref_t<Policy>& policy, Raw&& raw) {
+        { policy.on_exhausted(std::forward<Raw>(raw)) } noexcept
+            -> std::convertible_to<std::remove_cvref_t<Raw>>;
+    };
+
+template <typename Policy, typename Raw>
+[[nodiscard]] constexpr auto handle_retry_exhausted(const Policy& policy, Raw&& raw) noexcept {
+    if constexpr (retry_exhaustion_policy<Policy, Raw>) {
+        return policy.on_exhausted(std::forward<Raw>(raw));
+    } else {
+        return std::forward<Raw>(raw);
+    }
+}
+
 }  // namespace yorch::detail
 
 namespace yorch {
@@ -237,14 +303,14 @@ namespace yorch {
  *
  * Unlike `executable_task`, this concept only checks structural invocability
  * and does not require the wrapped task itself to be `noexcept`. It is used as
- * the lower-level boundary for exception-catching adapters.
+ * the lower-level boundary shared by task adapters.
  *
  * @tparam Task Wrapped task type.
  * @tparam Ctx Context schema.
  * @tparam Prev Direct-parent slot view type.
  */
 template <typename Task, typename Ctx, typename Prev = no_prev>
-concept catch_wrappable_task =
+concept adapter_wrappable_task =
     requires(Task& task, exec_context<Ctx, Prev>& ec) {
         task.invoke_raw(ec);
     } &&
@@ -260,7 +326,7 @@ concept catch_wrappable_task =
  */
 template <typename Task, typename Ctx, typename Prev = no_prev>
 concept default_catchable_task =
-    catch_wrappable_task<Task, Ctx, Prev> &&
+    adapter_wrappable_task<Task, Ctx, Prev> &&
     detail::default_catch_supported_v<detail::raw_task_result_t<Task&, Ctx, Prev>>;
 
 /**
@@ -274,8 +340,72 @@ concept default_catchable_task =
  */
 template <typename Task, typename Policy, typename Ctx, typename Prev = no_prev>
 concept catch_policy_compatible_task =
-    catch_wrappable_task<Task, Ctx, Prev> &&
+    adapter_wrappable_task<Task, Ctx, Prev> &&
     detail::catch_policy_supported_v<detail::raw_task_result_t<Task&, Ctx, Prev>, Policy>;
+
+/**
+ * @brief Reports whether a retry policy exposes the minimal protocol required
+ * by `with_retry(...)`.
+ *
+ * The policy is asked whether one more retry should be attempted after the
+ * wrapped task has already returned `step_status::retry`. The argument counts
+ * how many retries have already been granted for the current execution of the
+ * wrapped node.
+ *
+ * @tparam Policy Candidate retry policy type.
+ */
+template <typename Policy>
+concept retry_policy =
+    requires(const std::remove_cvref_t<Policy>& policy, std::size_t retry_count) {
+        { policy.should_retry(retry_count) } noexcept -> std::convertible_to<bool>;
+    };
+
+/**
+ * @brief Retry policy that allows a fixed number of additional retries.
+ *
+ * `max_retries` counts retries after the initial attempt. For example,
+ * `retry_fixed_policy {2}` means "run once, then allow up to two more attempts
+ * if the task keeps returning `retry`". When that retry budget is exhausted,
+ * the adapter converts the final retry result into `failure`.
+ */
+struct retry_fixed_policy {
+    std::size_t max_retries = 0;
+
+    [[nodiscard]] constexpr bool should_retry(std::size_t retry_count) const noexcept {
+        return retry_count < max_retries;
+    }
+
+    template <typename Raw>
+    [[nodiscard]] static constexpr auto on_exhausted(Raw&& raw) noexcept {
+        return detail::retry_exhausted_as_failure(std::forward<Raw>(raw));
+    }
+};
+
+/**
+ * @brief Retry policy that allows a fixed number of retries and then preserves
+ * the final `retry` result unchanged.
+ */
+struct retry_fixed_passthrough_policy {
+    std::size_t max_retries = 0;
+
+    [[nodiscard]] constexpr bool should_retry(std::size_t retry_count) const noexcept {
+        return retry_count < max_retries;
+    }
+
+    template <typename Raw>
+    [[nodiscard]] static constexpr std::remove_cvref_t<Raw> on_exhausted(Raw&& raw) noexcept {
+        return std::forward<Raw>(raw);
+    }
+};
+
+/**
+ * @brief Retry policy that keeps retrying for as long as the task requests it.
+ */
+struct retry_forever_policy {
+    [[nodiscard]] static constexpr bool should_retry(std::size_t) noexcept {
+        return true;
+    }
+};
 
 /**
  * @brief Exception-catching adapter for tasks that rely on the default failure
@@ -395,6 +525,87 @@ struct catch_failure_with_policy_task
 };
 
 /**
+ * @brief Retry adapter that re-invokes a task when it returns `retry`.
+ *
+ * This wrapper leaves the task's raw result type unchanged. Only results that
+ * can explicitly carry `step_status::retry` participate in the retry loop:
+ * `step_result`, `task_result<void>`, and `task_result<T>`. Plain value and
+ * `void` results are forwarded unchanged because they cannot request retry
+ * through the current status model.
+ *
+ * @tparam Task Stored task type.
+ * @tparam Policy Stored retry policy type.
+ */
+template <typename Task, typename Policy>
+struct retry_task : detail::retry_task_raw_result_base<Task> {
+    Task task;
+    Policy policy;
+
+    constexpr retry_task(Task&& stored_task, Policy&& stored_policy)
+        noexcept(std::is_nothrow_move_constructible_v<Task> &&
+                 std::is_nothrow_move_constructible_v<Policy>)
+        : task(std::forward<Task>(stored_task)),
+          policy(std::forward<Policy>(stored_policy)) {}
+
+    constexpr retry_task(const Task& stored_task, const Policy& stored_policy)
+        noexcept(std::is_nothrow_copy_constructible_v<Task> &&
+                 std::is_nothrow_copy_constructible_v<Policy>)
+        : task(stored_task),
+          policy(stored_policy) {}
+
+    /**
+     * @brief Executes the wrapped task and re-runs it while policy permits.
+     *
+     * Each retry attempt re-enters the wrapped task from scratch with the same
+     * borrowed execution context. Side effects from earlier attempts are not
+     * rolled back by this adapter.
+     *
+     * @tparam Ctx Context schema.
+     * @tparam Prev Direct-parent slot view type.
+     * @param ec Borrowed execution context.
+     * @return The first non-`retry` raw result, or the policy-selected result
+     * once the retry budget is exhausted.
+     */
+    template <typename Ctx, typename Prev>
+        requires adapter_wrappable_task<Task, Ctx, Prev> && retry_policy<Policy>
+    constexpr decltype(auto) invoke_raw(exec_context<Ctx, Prev>& ec)
+        noexcept(noexcept(task.invoke_raw(ec)) &&
+                 noexcept(policy.should_retry(std::size_t {})) &&
+                 noexcept(detail::handle_retry_exhausted(
+                     policy,
+                     std::declval<std::remove_cvref_t<detail::raw_task_result_t<Task&, Ctx, Prev>>>()))) {
+        using raw_result_t = detail::raw_task_result_t<Task&, Ctx, Prev>;
+        using raw_value_t = std::remove_cvref_t<raw_result_t>;
+
+        static_assert(detail::declared_task_raw_result_matches_invoke_raw_v<Task, Ctx, Prev>,
+                      "Wrapped task raw_result_type must match invoke_raw(exec_context<...>&) return type");
+
+        if constexpr (!detail::retry_status_capable_result_v<raw_result_t>) {
+            return task.invoke_raw(ec);
+        } else {
+            static_assert(!std::is_reference_v<raw_result_t>,
+                          "with_retry(...) does not support retry-capable reference raw results");
+
+            std::size_t retry_count = 0;
+
+            while (true) {
+                raw_value_t raw = task.invoke_raw(ec);
+
+                if (!detail::raw_result_requests_retry(raw)) {
+                    return raw;
+                }
+
+                if (!policy.should_retry(retry_count)) {
+                    return detail::handle_retry_exhausted(policy, std::move(raw));
+                }
+
+                ++retry_count;
+            }
+        }
+    }
+};
+
+/**
  * @brief Wraps a task so thrown exceptions become default failure results.
  *
  * This overload is intentionally narrow: it only supports raw return
@@ -442,6 +653,31 @@ constexpr auto catch_as_failure(Task&& task) {
 template <typename Task, typename Policy>
 constexpr auto catch_as_failure(Task&& task, Policy&& policy) {
     return catch_failure_with_policy_task<
+        std::decay_t<Task>,
+        std::decay_t<Policy>
+    >{
+        std::forward<Task>(task),
+        std::forward<Policy>(policy)
+    };
+}
+
+/**
+ * @brief Wraps a task so `retry` results are handled by a user retry policy.
+ *
+ * The wrapped task keeps its original raw result type. The adapter simply
+ * re-invokes it while the raw result requests retry and the policy approves
+ * another attempt.
+ *
+ * @tparam Task Task type to wrap.
+ * @tparam Policy Retry policy type.
+ * @param task Task object exposing `invoke_raw(...)`.
+ * @param policy Retry policy object.
+ * @return A `retry_task` wrapper.
+ */
+template <typename Task, typename Policy>
+    requires retry_policy<std::decay_t<Policy>>
+constexpr auto with_retry(Task&& task, Policy&& policy) {
+    return retry_task<
         std::decay_t<Task>,
         std::decay_t<Policy>
     >{

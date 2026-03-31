@@ -36,20 +36,17 @@ TEST(ResultTest, StepAndTaskReportSuccess) {
 
 TEST(ResultTest, NonSuccessTaskResultsDoNotMaterializePayload) {
     const auto failure = yorch::task_result<int>::failure();
-    const auto skip = yorch::task_result<int>::skip();
     const auto retry = yorch::task_result<int>::retry();
     const auto abort_branch = yorch::task_result<int>::abort_branch();
     const auto abort_execution = yorch::task_result<int>::abort_execution();
     const auto from_step = yorch::task_result<int>::from_step(yorch::step_result::failure());
 
     EXPECT_EQ(failure.step.status, yorch::step_status::failure);
-    EXPECT_EQ(skip.step.status, yorch::step_status::skip);
     EXPECT_EQ(retry.step.status, yorch::step_status::retry);
     EXPECT_EQ(abort_branch.step.status, yorch::step_status::abort_branch);
     EXPECT_EQ(abort_execution.step.status, yorch::step_status::abort_execution);
     EXPECT_EQ(from_step.step.status, yorch::step_status::failure);
     EXPECT_FALSE(failure.has_value());
-    EXPECT_FALSE(skip.has_value());
     EXPECT_FALSE(retry.has_value());
     EXPECT_FALSE(abort_branch.has_value());
     EXPECT_FALSE(abort_execution.has_value());

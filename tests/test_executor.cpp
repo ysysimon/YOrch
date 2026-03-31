@@ -95,6 +95,13 @@ static_assert(!yorch::executable_task<mismatched_declared_task&, void>);
 using caught_throwing_task_t = decltype(yorch::catch_as_failure(throwing_spec_task {}));
 static_assert(yorch::executable_task<caught_throwing_task_t&, void>);
 
+using retrying_task_t = decltype(yorch::with_retry(
+    yorch::bind([]() noexcept -> yorch::step_result {
+        return yorch::step_result::retry();
+    }),
+    yorch::retry_fixed_policy {1}));
+static_assert(yorch::executable_task<retrying_task_t&, void>);
+
 using throwing_bound_task_t = decltype(yorch::bind([]() -> yorch::step_result {
     throw std::runtime_error("boom");
 }));
@@ -424,6 +431,53 @@ TEST(ExecutorTest, RunPlanSupportsContextAndTaskAdapters) {
 
     EXPECT_EQ(result.status, yorch::step_status::failure);
     EXPECT_EQ(ctx.get<int>(), 6);
+}
+
+TEST(ExecutorTest, RunPlanSupportsPerNodeRetryPolicies) {
+    std::vector<std::string> trace;
+    int fixed_attempts = 0;
+    int forever_attempts = 0;
+
+    auto tree = yorch::task_tree.root(yorch::bind([&]() noexcept -> int {
+            trace.emplace_back("A");
+            return 5;
+        }))
+        .node<1>(yorch::with_retry(
+            yorch::bind(
+                [&](const int& value) noexcept -> yorch::step_result {
+                    trace.emplace_back("B");
+                    EXPECT_EQ(value, 5);
+                    ++fixed_attempts;
+                    return fixed_attempts < 3
+                        ? yorch::step_result::retry()
+                        : yorch::step_result::success();
+                },
+                yorch::from_prev<int>()),
+            yorch::retry_fixed_policy {4}))
+            .node<2>(yorch::bind([&]() noexcept -> yorch::step_result {
+                trace.emplace_back("C");
+                return yorch::step_result::success();
+            }))
+        .node<1>(yorch::with_retry(
+            yorch::bind(
+                [&](const int& value) noexcept -> yorch::step_result {
+                    trace.emplace_back("D");
+                    EXPECT_EQ(value, 5);
+                    ++forever_attempts;
+                    return forever_attempts < 2
+                        ? yorch::step_result::retry()
+                        : yorch::step_result::success();
+                },
+                yorch::from_prev<int>()),
+            yorch::retry_forever_policy {}));
+
+    auto plan = yorch::compile_plan(tree);
+    const auto result = yorch::run_plan(plan);
+
+    EXPECT_TRUE(result.ok());
+    EXPECT_EQ(fixed_attempts, 3);
+    EXPECT_EQ(forever_attempts, 2);
+    EXPECT_EQ(trace, (std::vector<std::string> {"A", "B", "B", "B", "C", "D", "D"}));
 }
 
 TEST(ExecutorTest, RunPlanAllowsConstPrevFanoutAndRejectsMutableOrValueFanout) {

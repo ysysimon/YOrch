@@ -11,11 +11,22 @@ namespace yorch {
  * @brief Describes the execution status of a single step.
  *
  * This enum only represents control-flow state and does not carry a task value.
+ * The statuses express both outcome and scheduler intent:
+ *
+ * - `success`: the step completed normally; child traversal or later execution
+ *   may continue as usual
+ * - `failure`: the step failed; the status propagates upward as an error and
+ *   stops later execution
+ * - `retry`: the step requests a retry; the status propagates upward unchanged
+ *   so an outer scheduler can decide how to handle it
+ * - `abort_branch`: the step intentionally stops only the current subtree; this
+ *   is a local control-flow signal rather than an error
+ * - `abort_execution`: the step intentionally cancels the whole execution; this
+ *   is treated as a normal cancellation signal rather than a failure
  */
 enum class step_status : unsigned char {
     success,
     failure,
-    skip,
     retry,
     abort_branch,
     abort_execution,
@@ -39,11 +50,6 @@ struct step_result {
     /** @brief Creates a failed result. */
     [[nodiscard]] static constexpr step_result failure() noexcept {
         return {step_status::failure};
-    }
-
-    /** @brief Creates a skipped result. */
-    [[nodiscard]] static constexpr step_result skip() noexcept {
-        return {step_status::skip};
     }
 
     /** @brief Creates a retry result. */
@@ -114,10 +120,6 @@ public:
         return from_step(step_result::failure());
     }
 
-    [[nodiscard]] static constexpr task_result skip() noexcept {
-        return from_step(step_result::skip());
-    }
-
     [[nodiscard]] static constexpr task_result retry() noexcept {
         return from_step(step_result::retry());
     }
@@ -185,10 +187,6 @@ struct task_result<void> {
 
     [[nodiscard]] static constexpr task_result failure() noexcept {
         return {step_result::failure()};
-    }
-
-    [[nodiscard]] static constexpr task_result skip() noexcept {
-        return {step_result::skip()};
     }
 
     [[nodiscard]] static constexpr task_result retry() noexcept {

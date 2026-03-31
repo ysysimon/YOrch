@@ -1,6 +1,5 @@
 #pragma once
 #include <cstddef>
-#include <concepts>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -136,6 +135,10 @@ template <typename Task, typename Policy>
 struct fanout_prev_task_valid<catch_failure_with_policy_task<Task, Policy>>
     : fanout_prev_task_valid<Task> {};
 
+template <typename Task, typename Policy>
+struct fanout_prev_task_valid<retry_task<Task, Policy>>
+    : fanout_prev_task_valid<Task> {};
+
 template <typename Task>
 inline constexpr bool fanout_prev_task_valid_v =
     fanout_prev_task_valid<std::remove_cvref_t<Task>>::value;
@@ -161,6 +164,10 @@ struct task_uses_from_prev<catch_failure_task<Task>>
 
 template <typename Task, typename Policy>
 struct task_uses_from_prev<catch_failure_with_policy_task<Task, Policy>>
+    : task_uses_from_prev<Task> {};
+
+template <typename Task, typename Policy>
+struct task_uses_from_prev<retry_task<Task, Policy>>
     : task_uses_from_prev<Task> {};
 
 template <typename Task>
