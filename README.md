@@ -52,6 +52,44 @@ cmake --build --preset docs --target docs
 
 生成完成后，首页位于 `build/docs/docs/html/index.html`。
 
+## Plan Types
+
+当用户需要在自己的类里长期保存 compiled plan 时，推荐做法是：
+
+- 用独立的 `make_tree(...)` 函数或类内 `static make_tree(...)` 构造 `task_tree_builder`
+- 用 `yorch::compiled_plan_t<Tree>` 命名成员变量类型
+- 在构造函数里调用 `yorch::compile_plan(...)` 初始化该成员
+
+示例：
+
+```cpp
+inline auto make_demo_tree(int value) {
+    return yorch::task_tree
+        .root(yorch::bind([value]() noexcept -> int {
+            return value;
+        }))
+        .node<1>(yorch::bind([](int) noexcept {},
+                             yorch::from_prev<int>()));
+}
+
+template <typename Tree>
+class runner {
+public:
+    using plan_type = yorch::compiled_plan_t<Tree>;
+
+    explicit runner(Tree&& tree)
+        : plan_(yorch::compile_plan(std::forward<Tree>(tree))) {}
+
+private:
+    plan_type plan_;
+};
+
+auto tree = make_demo_tree(42);
+runner r(std::move(tree));
+```
+
+如果 `tree` 只是 compile 的一次性输入，通常没有必要把 `task_tree_builder` 也作为成员长期保存。
+
 ## Roadmap
 
 1. `Phase 1`：补齐 `step_result`、`exec_context`、`value/from_ctx`、`bind`

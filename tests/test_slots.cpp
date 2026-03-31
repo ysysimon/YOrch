@@ -26,26 +26,37 @@ struct move_only {
     ~move_only() = default;
 };
 
+struct lifetime_tracker {
+    int live_count = 0;
+    int destroyed_count = 0;
+};
+
 struct lifetime_probe {
-    inline static int live_count = 0;
-    inline static int destroyed_count = 0;
+    lifetime_tracker* tracker = nullptr;
 
     int value = 0;
 
-    lifetime_probe() {
-        ++live_count;
+    explicit lifetime_probe(lifetime_tracker& tracker_ref)
+        : tracker(&tracker_ref) {
+        ++tracker->live_count;
     }
 
-    explicit lifetime_probe(int in) : value(in) {
-        ++live_count;
+    lifetime_probe(lifetime_tracker& tracker_ref, int in)
+        : tracker(&tracker_ref),
+          value(in) {
+        ++tracker->live_count;
     }
 
-    lifetime_probe(const lifetime_probe& other) : value(other.value) {
-        ++live_count;
+    lifetime_probe(const lifetime_probe& other)
+        : tracker(other.tracker),
+          value(other.value) {
+        ++tracker->live_count;
     }
 
-    lifetime_probe(lifetime_probe&& other) noexcept : value(other.value) {
-        ++live_count;
+    lifetime_probe(lifetime_probe&& other) noexcept
+        : tracker(other.tracker),
+          value(other.value) {
+        ++tracker->live_count;
         other.value = -1;
     }
 
@@ -53,13 +64,8 @@ struct lifetime_probe {
     lifetime_probe& operator=(lifetime_probe&&) noexcept = default;
 
     ~lifetime_probe() {
-        --live_count;
-        ++destroyed_count;
-    }
-
-    static void reset() {
-        live_count = 0;
-        destroyed_count = 0;
+        --tracker->live_count;
+        ++tracker->destroyed_count;
     }
 };
 
@@ -95,9 +101,9 @@ constexpr auto make_move_only_plan() {
     return yorch::compile_plan(tree);
 }
 
-constexpr auto make_probe_plan() {
-    auto tree = yorch::task_tree.root(yorch::bind([]() noexcept -> lifetime_probe {
-        return lifetime_probe {7};
+auto make_probe_plan(lifetime_tracker& tracker) {
+    auto tree = yorch::task_tree.root(yorch::bind([&tracker]() noexcept -> lifetime_probe {
+        return lifetime_probe {tracker, 7};
     }));
 
     return yorch::compile_plan(tree);
@@ -106,34 +112,34 @@ constexpr auto make_probe_plan() {
 } // namespace
 
 TEST(SlotsTest, TypedSlotTracksLifecycleAndAutoDestroysLivePayload) {
-    lifetime_probe::reset();
+    lifetime_tracker tracker;
 
     {
         yorch::detail::typed_slot<lifetime_probe> slot;
 
         EXPECT_FALSE(slot.has_value());
 
-        auto& probe = slot.emplace(11);
+        auto& probe = slot.emplace(tracker, 11);
 
         EXPECT_TRUE(slot.has_value());
         EXPECT_EQ(probe.value, 11);
-        EXPECT_EQ(lifetime_probe::live_count, 1);
-        EXPECT_EQ(lifetime_probe::destroyed_count, 0);
+        EXPECT_EQ(tracker.live_count, 1);
+        EXPECT_EQ(tracker.destroyed_count, 0);
 
         slot.destroy();
 
         EXPECT_FALSE(slot.has_value());
-        EXPECT_EQ(lifetime_probe::live_count, 0);
-        EXPECT_EQ(lifetime_probe::destroyed_count, 1);
+        EXPECT_EQ(tracker.live_count, 0);
+        EXPECT_EQ(tracker.destroyed_count, 1);
 
-        slot.emplace(22);
+        slot.emplace(tracker, 22);
         EXPECT_TRUE(slot.has_value());
         EXPECT_EQ(probe.value, 22);
-        EXPECT_EQ(lifetime_probe::live_count, 1);
+        EXPECT_EQ(tracker.live_count, 1);
     }
 
-    EXPECT_EQ(lifetime_probe::live_count, 0);
-    EXPECT_EQ(lifetime_probe::destroyed_count, 2);
+    EXPECT_EQ(tracker.live_count, 0);
+    EXPECT_EQ(tracker.destroyed_count, 2);
 }
 
 TEST(SlotsTest, PlanSlotsExposePerNodeOutputTypesAndLifecycle) {
@@ -239,21 +245,21 @@ TEST(SlotsTest, PlanSlotsSupportMoveOnlyPayloads) {
 }
 
 TEST(SlotsTest, PlanSlotsDestructorDestroysLivePayloads) {
-    lifetime_probe::reset();
+    lifetime_tracker tracker;
 
     {
-        auto plan = make_probe_plan();
+        auto plan = make_probe_plan(tracker);
         yorch::plan_slots<decltype(plan)> slots;
 
-        slots.emplace<0>(lifetime_probe {5});
+        slots.emplace<0>(lifetime_probe {tracker, 5});
 
         EXPECT_TRUE(slots.has_value<0>());
-        EXPECT_EQ(lifetime_probe::live_count, 1);
+        EXPECT_EQ(tracker.live_count, 1);
         // The temporary passed into emplace(...) has already been destroyed;
         // the slot-owned payload remains live here.
-        EXPECT_EQ(lifetime_probe::destroyed_count, 1);
+        EXPECT_EQ(tracker.destroyed_count, 1);
     }
 
-    EXPECT_EQ(lifetime_probe::live_count, 0);
-    EXPECT_EQ(lifetime_probe::destroyed_count, 2);
+    EXPECT_EQ(tracker.live_count, 0);
+    EXPECT_EQ(tracker.destroyed_count, 2);
 }

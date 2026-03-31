@@ -114,6 +114,21 @@ TEST(PlanTest, CompilePlanPreservesMoveOnlyTasksWhenConsumingBuilder) {
     EXPECT_EQ(*spec.v, 9);
 }
 
+TEST(PlanTest, CompiledPlanAliasMapsTaskTreeBuilderToPlanType) {
+    auto tree = yorch::task_tree.root(yorch::bind([]() noexcept -> int {
+            return 7;
+        }))
+        .node<1>(make_void_task());
+
+    using tree_t = decltype(tree);
+    using plan_t = yorch::compiled_plan_t<tree_t>;
+
+    static_assert(std::is_same_v<plan_t, decltype(yorch::compile_plan(tree))>);
+    static_assert(plan_t::node_count == 2);
+
+    SUCCEED();
+}
+
 TEST(PlanTest, CompilePlanRejectsEmptyTaskTree) {
     static_assert(!can_compile_plan<decltype(yorch::task_tree)&>,
                   "compile_plan should reject an empty task_tree_builder");

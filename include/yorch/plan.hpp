@@ -329,6 +329,34 @@ struct compiled_plan {
     }
 };
 
+template <typename Tree>
+struct compiled_plan_from;
+
+/**
+ * @brief Maps a `task_tree_builder` type to its corresponding compiled plan type.
+ *
+ * This public trait exists so user code can name the plan type in class
+ * members, aliases, and other declaration contexts without spelling a
+ * `decltype(compile_plan(...))` expression.
+ *
+ * @tparam Tree Task tree builder type.
+ */
+template <typename... Nodes>
+struct compiled_plan_from<task_tree_builder<Nodes...>> {
+    using type = compiled_plan<Nodes...>;
+};
+
+/**
+ * @brief Convenience alias for the compiled plan type produced from a tree type.
+ *
+ * `compiled_plan_t<Tree>` removes cv/ref qualifiers from `Tree` before mapping
+ * it to `compiled_plan<...>`.
+ *
+ * @tparam Tree Task tree builder type.
+ */
+template <typename Tree>
+using compiled_plan_t = typename compiled_plan_from<std::remove_cvref_t<Tree>>::type;
+
 /**
  * @brief Compiles a populated `task_tree_builder` into a static plan.
  *
