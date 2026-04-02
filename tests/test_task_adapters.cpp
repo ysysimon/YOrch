@@ -65,6 +65,7 @@ using direct_output_task_t = decltype(yorch::bind_into<int>(
         return out.success(1);
     }));
 
+// NOLINTNEXTLINE(performance-unnecessary-value-param)
 using compatible_direct_output_policy_t = decltype([](std::exception_ptr) noexcept -> yorch::step_result {
     return yorch::step_result::failure();
 });
