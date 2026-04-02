@@ -61,6 +61,26 @@ concept plannable_task =
         typename task_raw_result<std::remove_cvref_t<Task>>::type;
     };
 
+template <typename Task, typename = void>
+struct plan_declared_task_output;
+
+template <typename Task>
+struct plan_declared_task_output<
+    Task,
+    std::void_t<typename std::remove_cvref_t<Task>::output_type>
+> {
+    using type = typename std::remove_cvref_t<Task>::output_type;
+};
+
+template <typename Task, typename = void>
+struct has_plan_declared_task_output : std::false_type {};
+
+template <typename Task>
+struct has_plan_declared_task_output<
+    Task,
+    std::void_t<typename std::remove_cvref_t<Task>::output_type>
+> : std::true_type {};
+
 template <typename R>
 struct task_output_type_impl {
     using type = R;
@@ -96,6 +116,22 @@ struct task_output_type<void> {
 
 template <typename R>
 using task_output_t = typename task_output_type<R>::type;
+
+template <typename Task, typename = void>
+struct task_output_for {
+    using type = task_output_t<task_raw_result_t<Task>>;
+};
+
+template <typename Task>
+struct task_output_for<
+    Task,
+    std::void_t<typename plan_declared_task_output<Task>::type>
+> {
+    using type = typename plan_declared_task_output<Task>::type;
+};
+
+template <typename Task>
+using task_output_for_t = typename task_output_for<Task>::type;
 
 template <typename... Nodes>
 [[nodiscard]] consteval auto make_level_array() {
@@ -292,7 +328,7 @@ struct compiled_plan {
     using raw_result_type = detail::task_raw_result_t<task_type<I>>;
 
     template <std::size_t I>
-    using output_type = detail::task_output_t<raw_result_type<I>>;
+    using output_type = detail::task_output_for_t<task_type<I>>;
 
     template <std::size_t I>
     static constexpr std::size_t level = levels[I];

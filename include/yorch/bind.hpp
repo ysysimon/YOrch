@@ -7,6 +7,7 @@
 
 #include "context.hpp"
 #include "resolve.hpp"
+#include "slots.hpp"
 
 namespace yorch::detail {
 
@@ -75,6 +76,14 @@ using nth_arg_t = typename function_traits<std::remove_cvref_t<F>>::template arg
 template <typename F>
 using result_t = typename function_traits<std::remove_cvref_t<F>>::result_type;
 
+template <typename F>
+inline constexpr std::size_t last_arg_index_v =
+    function_traits<std::remove_cvref_t<F>>::arity - 1;
+
+template <typename F>
+using last_arg_t =
+    nth_arg_t<last_arg_index_v<F>, F>;
+
 } // namespace yorch::detail
 
 namespace yorch {
@@ -127,6 +136,70 @@ private:
 };
 
 /**
+ * @brief Bound direct-output task that writes its payload into a provided slot.
+ *
+ * This form keeps parameter resolution identical to `bound_task`, but the
+ * stored callable receives a trailing `result_out<T>` sink instead of
+ * returning the payload through its function result.
+ *
+ * @tparam F Stored callable type.
+ * @tparam T Payload type written into the output sink.
+ * @tparam Specs Stored input binding specs, one for each non-output parameter.
+ */
+template <typename F, typename T, typename... Specs>
+struct bound_output_task {
+    using raw_result_type = step_result;
+    using output_type = T;
+
+    F func;
+    std::tuple<Specs...> specs;
+
+    template <typename Ctx, typename Prev>
+    constexpr step_result invoke_raw(exec_context<Ctx, Prev>& ec)
+        noexcept(noexcept(invoke_into(ec, result_out<T> {
+            std::declval<detail::typed_slot<T>&>()}))) {
+        detail::typed_slot<T> scratch;
+        auto out = result_out<T> {scratch};
+        const auto step = invoke_into(ec, out);
+        YORCH_ASSERT(!step.ok() || scratch.has_value());
+        scratch.destroy();
+        return step;
+    }
+
+    template <typename Ctx, typename Prev>
+    constexpr step_result invoke_into(exec_context<Ctx, Prev>& ec, result_out<T> out)
+        noexcept(noexcept(call_impl_into(ec, out, std::index_sequence_for<Specs...> {}))) {
+        using call_result_t =
+            decltype(call_impl_into(ec, out, std::index_sequence_for<Specs...> {}));
+
+        if constexpr (std::is_void_v<call_result_t>) {
+            call_impl_into(ec, out, std::index_sequence_for<Specs...> {});
+            return step_result::success();
+        } else {
+            static_assert(std::is_same_v<std::remove_cvref_t<call_result_t>, step_result>,
+                          "bind_into(...) callable must return void or yorch::step_result");
+            return call_impl_into(ec, out, std::index_sequence_for<Specs...> {});
+        }
+    }
+
+private:
+    template <typename Ctx, typename Prev, std::size_t... I>
+    constexpr decltype(auto) call_impl_into(
+        exec_context<Ctx, Prev>& ec,
+        result_out<T> out,
+        std::index_sequence<I...>)
+        noexcept(noexcept(std::invoke(
+            func,
+            resolve_as<detail::nth_arg_t<I, F>>(std::get<I>(specs), ec)...,
+            out))) {
+        return std::invoke(
+            func,
+            resolve_as<detail::nth_arg_t<I, F>>(std::get<I>(specs), ec)...,
+            out);
+    }
+};
+
+/**
  * @brief Creates a `bound_task` from a callable and matching argument specs.
  *
  * The callable and specs are stored by decayed value. The number of specs must
@@ -160,6 +233,46 @@ constexpr auto bind(F&& f, Specs&&... specs) { // NOLINT(readability-identifier-
     >{
         std::forward<F>(f),
         std::tuple<std::decay_t<Specs>...>{std::forward<Specs>(specs)...}
+    };
+}
+
+/**
+ * @brief Creates a direct-output task from a callable and matching input specs.
+ *
+ * The callable's last parameter must be a `result_out<T>`-compatible output
+ * sink. All earlier parameters are resolved exactly like `bind(...)`.
+ *
+ * @tparam T Payload type produced into the destination slot.
+ * @tparam F Callable type.
+ * @tparam Specs Input spec types.
+ * @param f Callable to execute later.
+ * @param specs Input binding specs, one for each non-output parameter.
+ * @return A `bound_output_task` that can be executed through `invoke_into(...)`
+ * or, via fallback, `invoke_raw(...)`.
+ */
+template <typename T, typename F, typename... Specs>
+constexpr auto bind_into(F&& f, Specs&&... specs) {
+    using fn_t = std::remove_cvref_t<F>;
+
+    static_assert(detail::function_traits<fn_t>::arity > 0,
+                  "bind_into(...) requires a callable whose last parameter is yorch::result_out<T>");
+    static_assert(
+        sizeof...(Specs) + 1 == detail::function_traits<fn_t>::arity,
+        "bind_into(...) requires exactly one spec per non-output function parameter");
+
+    using last_arg_t = detail::last_arg_t<fn_t>;
+
+    static_assert(
+        std::is_same_v<std::remove_cvref_t<last_arg_t>, result_out<T>>,
+        "bind_into(...) callable must take yorch::result_out<T> as its last parameter");
+
+    return bound_output_task<
+        std::decay_t<F>,
+        T,
+        std::decay_t<Specs>...
+    >{
+        std::forward<F>(f),
+        std::tuple<std::decay_t<Specs>...> {std::forward<Specs>(specs)...}
     };
 }
 

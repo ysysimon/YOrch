@@ -7,6 +7,7 @@
 
 #include "context.hpp"
 #include "detail/maybe_storage.hpp"
+#include "result.hpp"
 
 namespace yorch::detail {
 
@@ -144,6 +145,51 @@ concept payload_node =
 namespace yorch {
 
 /**
+ * @brief Lightweight output sink that constructs a payload directly into a slot.
+ *
+ * `result_out<T>` intentionally exposes only the minimal operations needed by
+ * direct-output tasks: construct a payload in-place and optionally pair that
+ * construction with a `success` status result.
+ *
+ * The object itself is a thin borrowed view over executor-owned storage; it
+ * does not own the destination payload.
+ *
+ * @tparam T Payload type constructed into the destination slot.
+ */
+template <typename T>
+struct result_out {
+    static_assert(!std::is_void_v<T>,
+                  "yorch::result_out<T> requires a non-void payload type");
+
+    constexpr explicit result_out(detail::typed_slot<T>& slot) noexcept
+        : slot_(slot) {}
+
+    template <typename... Args>
+    constexpr T& emplace(Args&&... args)
+        noexcept(noexcept(slot_.emplace(std::forward<Args>(args)...))) {
+        return slot_.emplace(std::forward<Args>(args)...);
+    }
+
+    template <typename... Args>
+    [[nodiscard]] constexpr step_result success(Args&&... args)
+        noexcept(noexcept(emplace(std::forward<Args>(args)...))) {
+        emplace(std::forward<Args>(args)...);
+        return step_result::success();
+    }
+
+    constexpr void destroy() noexcept {
+        slot_.destroy();
+    }
+
+    [[nodiscard]] constexpr bool has_value() const noexcept {
+        return slot_.has_value();
+    }
+
+private:
+    detail::typed_slot<T>& slot_;
+};
+
+/**
  * @brief Per-plan payload storage with one logical slot per node.
  *
  * `plan_slots<Plan>` is the current storage backend for compiled tree plans.
@@ -206,6 +252,12 @@ struct plan_slots {
         noexcept(noexcept(slot<I>().emplace(std::forward<Args>(args)...)))
         -> output_type<I>& {
         return slot<I>().emplace(std::forward<Args>(args)...);
+    }
+
+    template <std::size_t I>
+        requires detail::payload_node<Plan, I>
+    [[nodiscard]] constexpr auto out() & noexcept -> result_out<output_type<I>> {
+        return result_out<output_type<I>> {slot<I>()};
     }
 
     template <std::size_t I>

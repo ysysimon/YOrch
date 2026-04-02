@@ -1,6 +1,5 @@
 #pragma once
 
-#include <concepts>
 #include <exception>
 #include <functional>
 #include <cstddef>
@@ -9,12 +8,40 @@
 
 #include "context.hpp"
 #include "result.hpp"
+#include "slots.hpp"
 
 namespace yorch::detail {
 
 template <typename Task, typename Ctx, typename Prev>
 using raw_task_result_t =
     decltype(std::declval<Task>().invoke_raw(std::declval<exec_context<Ctx, Prev>&>()));
+
+template <typename Task, typename = void>
+struct declared_task_output;
+
+template <typename Task>
+struct declared_task_output<
+    Task,
+    std::void_t<typename std::remove_cvref_t<Task>::output_type>
+> {
+    using type = typename std::remove_cvref_t<Task>::output_type;
+};
+
+template <typename Task>
+using declared_task_output_t = typename declared_task_output<Task>::type;
+
+template <typename Task, typename = void>
+struct has_declared_task_output : std::false_type {};
+
+template <typename Task>
+struct has_declared_task_output<
+    Task,
+    std::void_t<declared_task_output_t<Task>>
+> : std::true_type {};
+
+template <typename Task>
+inline constexpr bool has_declared_task_output_v =
+    has_declared_task_output<Task>::value;
 
 /**
  * @brief Reports whether the default `catch_as_failure(task)` adapter can
@@ -162,6 +189,17 @@ struct retry_task_raw_result_base<
     std::void_t<declared_task_raw_result_t<Task>>
 > {
     using raw_result_type = declared_task_raw_result_t<Task>;
+};
+
+template <typename Task, typename = void>
+struct forwarded_task_output_base {};
+
+template <typename Task>
+struct forwarded_task_output_base<
+    Task,
+    std::void_t<declared_task_output_t<Task>>
+> {
+    using output_type = declared_task_output_t<Task>;
 };
 
 /**
@@ -316,6 +354,18 @@ concept adapter_wrappable_task =
     } &&
     detail::declared_task_raw_result_matches_invoke_raw_v<Task, Ctx, Prev>;
 
+template <typename Task, typename Ctx, typename Prev = no_prev>
+concept direct_output_task =
+    detail::has_declared_task_output_v<Task> &&
+    requires(Task& task, exec_context<Ctx, Prev>& ec) {
+        {
+            task.invoke_into(
+                ec,
+                result_out<detail::declared_task_output_t<Task>> {
+                    std::declval<detail::typed_slot<detail::declared_task_output_t<Task>>&>()})
+        } -> std::same_as<step_result>;
+    };
+
 /**
  * @brief Reports whether `catch_as_failure(task)` can wrap `Task` for a
  * concrete execution context without a custom policy.
@@ -342,6 +392,11 @@ template <typename Task, typename Policy, typename Ctx, typename Prev = no_prev>
 concept catch_policy_compatible_task =
     adapter_wrappable_task<Task, Ctx, Prev> &&
     detail::catch_policy_supported_v<detail::raw_task_result_t<Task&, Ctx, Prev>, Policy>;
+
+template <typename Task, typename Policy, typename Ctx, typename Prev = no_prev>
+concept catch_policy_compatible_direct_output_task =
+    direct_output_task<Task, Ctx, Prev> &&
+    std::is_nothrow_invocable_r_v<step_result, Policy&, std::exception_ptr>;
 
 /**
  * @brief Reports whether a retry policy exposes the minimal protocol required
@@ -418,7 +473,9 @@ struct retry_forever_policy {
  * @tparam Task Stored task type.
  */
 template <typename Task>
-struct catch_failure_task : detail::catch_failure_task_raw_result_base<Task> {
+struct catch_failure_task
+    : detail::catch_failure_task_raw_result_base<Task>,
+      detail::forwarded_task_output_base<Task> {
     Task task;
 
     constexpr explicit catch_failure_task(Task&& stored_task)
@@ -459,6 +516,18 @@ struct catch_failure_task : detail::catch_failure_task_raw_result_base<Task> {
             return detail::default_catch_failure_result<raw_result_t>();
         }
     }
+
+    template <typename Ctx, typename Prev, typename U = Task>
+        requires direct_output_task<U, Ctx, Prev>
+    constexpr step_result invoke_into(
+        exec_context<Ctx, Prev>& ec,
+        result_out<detail::declared_task_output_t<U>> out) noexcept {
+        try {
+            return task.invoke_into(ec, out);
+        } catch (...) {
+            return step_result::failure();
+        }
+    }
 };
 
 /**
@@ -475,7 +544,8 @@ struct catch_failure_task : detail::catch_failure_task_raw_result_base<Task> {
  */
 template <typename Task, typename Policy>
 struct catch_failure_with_policy_task
-    : detail::catch_failure_with_policy_task_raw_result_base<Task, Policy> {
+    : detail::catch_failure_with_policy_task_raw_result_base<Task, Policy>,
+      detail::forwarded_task_output_base<Task> {
     Task task;
     Policy policy;
 
@@ -522,6 +592,18 @@ struct catch_failure_with_policy_task
             return detail::policy_catch_failure_result<raw_result_t>(policy, std::current_exception());
         }
     }
+
+    template <typename Ctx, typename Prev, typename U = Task>
+        requires catch_policy_compatible_direct_output_task<U, Policy, Ctx, Prev>
+    constexpr step_result invoke_into(
+        exec_context<Ctx, Prev>& ec,
+        result_out<detail::declared_task_output_t<U>> out) noexcept {
+        try {
+            return task.invoke_into(ec, out);
+        } catch (...) {
+            return std::invoke(policy, std::current_exception());
+        }
+    }
 };
 
 /**
@@ -537,7 +619,9 @@ struct catch_failure_with_policy_task
  * @tparam Policy Stored retry policy type.
  */
 template <typename Task, typename Policy>
-struct retry_task : detail::retry_task_raw_result_base<Task> {
+struct retry_task
+    : detail::retry_task_raw_result_base<Task>,
+      detail::forwarded_task_output_base<Task> {
     Task task;
     Policy policy;
 
@@ -601,6 +685,38 @@ struct retry_task : detail::retry_task_raw_result_base<Task> {
 
                 ++retry_count;
             }
+        }
+    }
+
+    template <typename Ctx, typename Prev, typename U = Task>
+        requires direct_output_task<U, Ctx, Prev> && retry_policy<Policy>
+    constexpr step_result invoke_into(
+        exec_context<Ctx, Prev>& ec,
+        result_out<detail::declared_task_output_t<U>> out) noexcept(
+            noexcept(task.invoke_into(ec, out)) &&
+            noexcept(policy.should_retry(std::size_t {})) &&
+            noexcept(detail::handle_retry_exhausted(
+                policy,
+                step_result::retry()))) {
+        std::size_t retry_count = 0;
+
+        while (true) {
+            const auto step = task.invoke_into(ec, out);
+
+            if (step.status != step_status::retry) {
+                return step;
+            }
+
+            if (!policy.should_retry(retry_count)) {
+                return detail::handle_retry_exhausted(policy, step);
+            }
+
+            // if the task requested retry, it should not have produced an output value, but just in case, destroy it before the next attempt to avoid leaking resources or causing double-destruction on the next success
+            if (out.has_value()) {
+                out.destroy();
+            }
+
+            ++retry_count;
         }
     }
 };

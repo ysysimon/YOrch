@@ -198,3 +198,40 @@ TEST(BindTest, BoundTaskPreservesTaskResultPayload) {
     EXPECT_EQ(result.value(), 14);
     EXPECT_EQ(ctx.get<int>(), 7);
 }
+
+TEST(BindTest, BoundOutputTaskResolvesSpecsAndWritesToOutputSink) {
+    yorch::context<int> ctx(6);
+    yorch::exec_context<decltype(ctx)> exec {ctx};
+
+    auto task = yorch::bind_into<std::string>(
+        [](int& value, yorch::result_out<std::string> out) noexcept -> yorch::step_result {
+            value += 1;
+            return out.success(std::to_string(value * 2));
+        },
+        yorch::from_ctx<int>());
+
+    static_assert(std::is_same_v<
+                  decltype(task.specs),
+                  std::tuple<yorch::from_ctx_t<int>>>);
+
+    yorch::detail::typed_slot<std::string> slot;
+    const auto result = task.invoke_into(exec, yorch::result_out<std::string> {slot});
+
+    EXPECT_TRUE(result.ok());
+    EXPECT_TRUE(slot.has_value());
+    EXPECT_EQ(slot.get(), "14");
+    EXPECT_EQ(ctx.get<int>(), 7);
+}
+
+TEST(BindTest, BoundOutputTaskNormalizesVoidCallableReturnToSuccess) {
+    yorch::exec_context<void> exec;
+
+    auto task = yorch::bind_into<int>(
+        [](yorch::result_out<int> out) noexcept {
+            out.emplace(9);
+        });
+
+    const auto result = task.invoke_raw(exec);
+
+    EXPECT_TRUE(result.ok());
+}

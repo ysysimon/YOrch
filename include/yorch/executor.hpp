@@ -33,6 +33,23 @@ concept executable_task =
         requires noexcept(std::forward<Task>(task).invoke_raw(ec));
     };
 
+template <typename Task, typename Ctx, typename Prev = no_prev>
+concept executable_direct_output_task =
+    direct_output_task<Task, Ctx, Prev> &&
+    requires(
+        Task&& task,
+        exec_context<Ctx, Prev>& ec,
+        detail::typed_slot<detail::declared_task_output_t<Task>>& slot) {
+        {
+            std::forward<Task>(task).invoke_into(
+                ec,
+                result_out<detail::declared_task_output_t<Task>> {slot})
+        } -> std::same_as<step_result>;
+        requires noexcept(std::forward<Task>(task).invoke_into(
+            ec,
+            result_out<detail::declared_task_output_t<Task>> {slot}));
+    };
+
 namespace detail {
 
 template <typename T>
@@ -127,6 +144,14 @@ struct fanout_prev_task_valid<bound_task<F, Specs...>>
               std::tuple<Specs...>>(
               std::index_sequence_for<Specs...> {})> {};
 
+template <typename F, typename T, typename... Specs>
+struct fanout_prev_task_valid<bound_output_task<F, T, Specs...>>
+    : std::bool_constant<
+          bound_task_fanout_prev_valid_impl<
+              std::remove_cvref_t<F>,
+              std::tuple<Specs...>>(
+              std::index_sequence_for<Specs...> {})> {};
+
 template <typename Task>
 struct fanout_prev_task_valid<catch_failure_task<Task>>
     : fanout_prev_task_valid<Task> {};
@@ -153,6 +178,13 @@ struct task_uses_from_prev : std::false_type {};
 
 template <typename F, typename... Specs>
 struct task_uses_from_prev<bound_task<F, Specs...>>
+    : std::bool_constant<
+          bound_task_uses_from_prev_impl<
+              std::tuple<Specs...>>(
+              std::index_sequence_for<Specs...> {})> {};
+
+template <typename F, typename T, typename... Specs>
+struct task_uses_from_prev<bound_output_task<F, T, Specs...>>
     : std::bool_constant<
           bound_task_uses_from_prev_impl<
               std::tuple<Specs...>>(
@@ -377,6 +409,18 @@ struct node_slot_guard {
     }
 };
 
+template <std::size_t I, typename Slots>
+[[nodiscard]] constexpr step_result finalize_direct_output_step(Slots& slots, step_result step) {
+    if (step.ok()) {
+        YORCH_ASSERT(slots.template has_value<I>() &&
+                     "Direct-output tasks returning success must construct their payload");
+    } else {
+        slots.template destroy<I>();
+    }
+
+    return step;
+}
+
 template <std::size_t I, std::size_t Ord = 0, typename Plan, typename Slots>
 [[nodiscard]] constexpr step_result run_children(Plan& plan, Slots& slots);
 
@@ -421,16 +465,32 @@ template <std::size_t I, typename Plan, typename Slots, typename Ec, typename Ch
     using exec_traits_t = exec_context_traits<std::remove_cvref_t<Ec>>;
     using raw_result_t = typename Plan::template raw_result_type<I>;
 
-    static_assert(executable_task<
-                      task_t&,
-                      typename exec_traits_t::ctx_type,
-                      typename exec_traits_t::prev_type>,
-                  "Plan nodes executed through run_plan(...) must expose a noexcept invoke_raw(exec_context<...>&) surface");
+    static_assert(
+        executable_task<
+            task_t&,
+            typename exec_traits_t::ctx_type,
+            typename exec_traits_t::prev_type> ||
+        executable_direct_output_task<
+            task_t&,
+            typename exec_traits_t::ctx_type,
+            typename exec_traits_t::prev_type>,
+        "Plan nodes executed through run_plan(...) must expose a noexcept invoke_raw(exec_context<...>&) or invoke_into(exec_context<...>&, result_out<...>) surface");
 
     auto& task = plan.template entry<I>().task;
     node_slot_guard<Slots, I> guard {slots};
 
-    if constexpr (std::is_void_v<raw_result_t>) {
+    if constexpr (executable_direct_output_task<
+                      task_t&,
+                      typename exec_traits_t::ctx_type,
+                      typename exec_traits_t::prev_type>) {
+        const auto step = finalize_direct_output_step<I>(
+            slots,
+            task.invoke_into(ec, slots.template out<I>()));
+
+        if (!step.ok()) {
+            return step;
+        }
+    } else if constexpr (std::is_void_v<raw_result_t>) {
         task.invoke_raw(ec);
     } else {
         const auto step = [&]() constexpr -> step_result {

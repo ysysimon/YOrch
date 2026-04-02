@@ -144,3 +144,25 @@ TEST(PlanTest, CompilePlanRejectsTasksWithoutDeclaredRawResultType) {
 
     SUCCEED();
 }
+
+TEST(PlanTest, CompilePlanPrefersDeclaredTaskOutputTypeForDirectOutputTasks) {
+    auto tree = yorch::task_tree.root(yorch::bind_into<std::string>(
+            [](yorch::result_out<std::string> out) noexcept -> yorch::step_result {
+                return out.success("root");
+            }))
+        .node<1>(yorch::bind_into<int>(
+            [](const std::string& value, yorch::result_out<int> out) noexcept -> yorch::step_result {
+                return out.success(static_cast<int>(value.size()));
+            },
+            yorch::from_prev<std::string>()));
+
+    auto plan = yorch::compile_plan(tree);
+    using plan_t = decltype(plan);
+
+    static_assert(std::is_same_v<plan_t::template raw_result_type<0>, yorch::step_result>);
+    static_assert(std::is_same_v<plan_t::template raw_result_type<1>, yorch::step_result>);
+    static_assert(std::is_same_v<plan_t::template output_type<0>, std::string>);
+    static_assert(std::is_same_v<plan_t::template output_type<1>, int>);
+
+    SUCCEED();
+}
