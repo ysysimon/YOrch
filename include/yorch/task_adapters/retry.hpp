@@ -74,8 +74,8 @@ struct retry_task
     constexpr retry_task(Task&& stored_task, Policy&& stored_policy)
         noexcept(std::is_nothrow_move_constructible_v<Task> &&
                  std::is_nothrow_move_constructible_v<Policy>)
-        : task(std::forward<Task>(stored_task)),
-          policy(std::forward<Policy>(stored_policy)) {}
+        : task(std::move(stored_task)),
+          policy(std::move(stored_policy)) {}
 
     constexpr retry_task(const Task& stored_task, const Policy& stored_policy)
         noexcept(std::is_nothrow_copy_constructible_v<Task> &&

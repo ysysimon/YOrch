@@ -108,7 +108,7 @@ public:
     ~task_result() = default;
 
     /** @brief Execution status of the current step. */
-    step_result step {};
+    step_result step {}; // NOLINT(cppcoreguidelines-non-private-member-variables-in-classes)
 
     template <typename U>
     [[nodiscard]] static constexpr task_result success(U&& value)

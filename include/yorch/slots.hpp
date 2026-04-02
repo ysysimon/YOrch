@@ -186,6 +186,7 @@ struct result_out {
     }
 
 private:
+    // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
     detail::typed_slot<T>& slot_;
 };
 

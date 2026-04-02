@@ -10,7 +10,7 @@
 namespace {
 
 struct throwing_spec_task {
-    constexpr yorch::step_result invoke_raw(yorch::exec_context<void>&) {
+    static constexpr yorch::step_result invoke_raw(yorch::exec_context<void>&) {
         return yorch::step_result::success();
     }
 };
@@ -28,7 +28,7 @@ struct throwing_int_source {
 struct mismatched_declared_task {
     using raw_result_type = int;
 
-    yorch::step_result invoke_raw(yorch::exec_context<void>&) noexcept {
+    static yorch::step_result invoke_raw(yorch::exec_context<void>&) noexcept {
         return yorch::step_result::success();
     }
 };
@@ -41,6 +41,7 @@ using policy_payload_bound_task_t = decltype(yorch::bind([]() -> yorch::task_res
     return yorch::task_result<int>::success(1);
 }));
 
+// NOLINTNEXTLINE(performance-unnecessary-value-param)
 using compatible_exception_policy_t = decltype([](std::exception_ptr) noexcept -> yorch::task_result<int> {
     return yorch::task_result<int>::failure();
 });
@@ -54,6 +55,7 @@ using direct_output_task_t = decltype(yorch::bind_into<int>(
         return out.success(1);
     }));
 
+// NOLINTNEXTLINE(performance-unnecessary-value-param)
 using compatible_direct_output_policy_t = decltype([](std::exception_ptr) noexcept -> yorch::step_result {
     return yorch::step_result::failure();
 });
@@ -102,6 +104,7 @@ TEST(TaskAdaptersTest, CatchAsFailureUsesFallbackPolicyForPayloadTask) {
             []() -> yorch::task_result<int> {
                 throw std::runtime_error("boom");
             }),
+                // NOLINTNEXTLINE(performance-unnecessary-value-param)
         [](std::exception_ptr ep) noexcept -> yorch::task_result<int> {
             try {
                 std::rethrow_exception(ep);
@@ -128,6 +131,7 @@ TEST(TaskAdaptersTest, CatchAsFailureCanCatchResolutionExceptions) {
                 return value;
             },
             yorch::value(throwing_int_source {42})),
+                // NOLINTNEXTLINE(performance-unnecessary-value-param)
         [](std::exception_ptr) noexcept -> int {
             return -7;
         });

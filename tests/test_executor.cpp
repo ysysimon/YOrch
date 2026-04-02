@@ -12,13 +12,13 @@
 namespace {
 
 struct noexcept_task {
-    constexpr yorch::step_result invoke_raw(yorch::exec_context<void>&) noexcept {
+    static constexpr yorch::step_result invoke_raw(yorch::exec_context<void>&) noexcept {
         return yorch::step_result::success();
     }
 };
 
 struct throwing_spec_task {
-    constexpr yorch::step_result invoke_raw(yorch::exec_context<void>&) {
+    static constexpr yorch::step_result invoke_raw(yorch::exec_context<void>&) {
         return yorch::step_result::success();
     }
 };
@@ -26,7 +26,7 @@ struct throwing_spec_task {
 struct mismatched_declared_task {
     using raw_result_type = int;
 
-    constexpr yorch::step_result invoke_raw(yorch::exec_context<void>&) noexcept {
+    static constexpr yorch::step_result invoke_raw(yorch::exec_context<void>&) noexcept {
         return yorch::step_result::success();
     }
 };
@@ -81,6 +81,7 @@ struct immovable_payload {
     immovable_payload& operator=(const immovable_payload&) = delete;
     immovable_payload(immovable_payload&&) = delete;
     immovable_payload& operator=(immovable_payload&&) = delete;
+    ~immovable_payload() = default;
 
     int value = 0;
 };
@@ -130,6 +131,7 @@ TEST(ExecutorTest, RunTaskExecutesBoundTaskAgainstContext) {
     yorch::exec_context<decltype(ctx)> exec {ctx};
 
     auto task = yorch::bind(
+           // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
         [](int& value, long label, int delta) noexcept -> bool {
             value += delta;
             return label == 7L;

@@ -291,6 +291,7 @@ constexpr decltype(auto) resolve_as(const value_t<T>& spec, exec_context<Ctx, Pr
  * @tparam Prev Parent slot view type carried by the current execution.
  */
 template <typename Arg, typename Spec, typename Ctx, typename Prev>
+// NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
 constexpr decltype(auto) resolve_as(Spec&&, exec_context<Ctx, Prev>&) {
     static_assert(detail::always_false_v<std::remove_cvref_t<Spec>>,
                   "Unsupported spec in resolve_as");

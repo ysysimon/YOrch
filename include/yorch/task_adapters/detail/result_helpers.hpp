@@ -1,6 +1,6 @@
 #pragma once
 
-#include <concepts>
+#include <concepts> // IWYU pragma: keep
 #include <functional>
 #include <utility>
 
@@ -75,7 +75,7 @@ template <typename PolicyResult>
 }
 
 template <typename R>
-[[nodiscard]] constexpr bool raw_result_requests_retry(R&& r) noexcept { // NOLINT(readability-identifier-length)
+[[nodiscard]] constexpr bool raw_result_requests_retry(const R& r) noexcept {
     using raw_t = std::remove_cvref_t<R>;
 
     if constexpr (std::is_same_v<raw_t, step_result>) {
@@ -94,7 +94,7 @@ inline constexpr bool retry_status_capable_result_v =
     is_task_result_v<std::remove_cvref_t<R>>;
 
 template <typename Raw>
-[[nodiscard]] constexpr auto retry_exhausted_as_failure(Raw&& raw) noexcept {
+[[nodiscard]] constexpr auto retry_exhausted_as_failure(const Raw& raw) noexcept {
     using raw_t = std::remove_cvref_t<Raw>;
 
     static_assert(retry_status_capable_result_v<raw_t>,

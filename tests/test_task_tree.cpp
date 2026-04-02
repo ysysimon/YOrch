@@ -151,6 +151,7 @@ TEST(TaskTreeTest, NodeCatchAsFailureWrapsBoundTaskWithCustomPolicy) {
             return 5;
         })
         .node_catch_as_failure<1>(
+                    // NOLINTNEXTLINE(performance-unnecessary-value-param)
             [](std::exception_ptr) noexcept -> yorch::task_result<int> {
                 return yorch::task_result<int>::success(-9);
             },

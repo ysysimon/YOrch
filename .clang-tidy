@@ -23,6 +23,7 @@ Checks: >
     -readability-named-parameter,
     -readability-redundant-member-init,
     -readability-uppercase-literal-suffix,
+    -readability-identifier-length,
 CheckOptions:
     - key: cppcoreguidelines-avoid-magic-numbers.IgnoreAllFloatingPointValues
       value: true
@@ -56,7 +57,3 @@ CheckOptions:
       value: true
     - key: readability-magic-numbers.IgnorePowersOf2IntegerValues
       value: true
-    - key: cppcoreguidelines-avoid-magic-numbers.IgnoredIntegerValues
-      value: '3;7;42;'
-    - key: readability-magic-numbers.IgnoredIntegerValues
-      value: '3;7;42;'

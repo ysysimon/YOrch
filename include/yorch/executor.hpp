@@ -404,6 +404,14 @@ template <typename Slots, std::size_t I>
 struct node_slot_guard {
     Slots& slots;
 
+    constexpr explicit node_slot_guard(Slots& stored_slots) noexcept
+        : slots(stored_slots) {}
+
+    node_slot_guard(const node_slot_guard&) = delete;
+    node_slot_guard& operator=(const node_slot_guard&) = delete;
+    node_slot_guard(node_slot_guard&&) = delete;
+    node_slot_guard& operator=(node_slot_guard&&) = delete;
+
     ~node_slot_guard() {
         slots.template destroy<I>();
     }
@@ -460,6 +468,7 @@ template <std::size_t I, typename Plan, typename Slots, typename Ec, typename Ch
     Plan& plan,
     Slots& slots,
     Ec& ec,
+    // NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
     ChildInvoker&& invoke_children) {
     using task_t = typename Plan::template task_type<I>;
     using exec_traits_t = exec_context_traits<std::remove_cvref_t<Ec>>;

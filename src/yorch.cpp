@@ -1,4 +1,4 @@
-#include "yorch/yorch.hpp"
+#include "yorch/yorch.hpp" // IWYU pragma: keep
 
 namespace yorch::detail {
 

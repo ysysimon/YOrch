@@ -14,6 +14,7 @@ struct move_only_payload {
     move_only_payload& operator=(const move_only_payload&) = delete;
     move_only_payload(move_only_payload&&) noexcept = default;
     move_only_payload& operator=(move_only_payload&&) noexcept = default;
+    ~move_only_payload() = default;
 
     int value = 0;
 };
