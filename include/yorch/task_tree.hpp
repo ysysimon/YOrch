@@ -104,6 +104,28 @@ concept bind_signature_matches =
     function_traits<std::remove_cvref_t<F>>::arity == sizeof...(Specs);
 
 /**
+ * @brief Reports whether `F` and `Specs...` can form a valid
+ * `bind_into<T>(...)` invocation.
+ *
+ * The direct-output builder sugar mirrors `yorch::bind_into<T>(...)`: the
+ * callable must expose at least one parameter, the trailing parameter must be
+ * `yorch::result_out<T>`, and the remaining parameters must be covered by the
+ * provided binding specs one-for-one.
+ *
+ * @tparam T Payload type written into the output sink.
+ * @tparam F Candidate callable type.
+ * @tparam Specs Candidate input binding spec types.
+ */
+template <typename T, typename F, typename... Specs>
+concept bind_into_signature_matches =
+    bind_callable<F> &&
+    function_traits<std::remove_cvref_t<F>>::arity > 0 &&
+    function_traits<std::remove_cvref_t<F>>::arity == sizeof...(Specs) + 1 &&
+    std::is_same_v<
+        std::remove_cvref_t<last_arg_t<std::remove_cvref_t<F>>>,
+        result_out<T>>;
+
+/**
  * @brief Reports whether `Policy` looks like a `catch_as_failure(...)`
  * fallback policy.
  *
@@ -219,6 +241,43 @@ struct task_tree_builder {
     }
 
     /**
+     * @brief Binds a direct-output callable and appends it as the root node.
+     *
+     * This is convenience syntax for `root(yorch::bind_into<T>(f, specs...))`.
+     *
+     * @tparam T Payload type written into the root output slot.
+     * @tparam F Callable type.
+     * @tparam Specs Input binding spec types.
+     * @param f Callable to bind.
+     * @param specs Binding specs for all non-output parameters.
+     * @return A new builder whose root stores the bound direct-output task.
+     */
+    template <typename T, typename F, typename... Specs>
+        requires (sizeof...(Nodes) == 0) && detail::bind_into_signature_matches<T, F, Specs...>
+    [[nodiscard]] constexpr auto root_bind_into(F&& f, Specs&&... specs) const& {
+        return root(yorch::bind_into<T>(std::forward<F>(f), std::forward<Specs>(specs)...));
+    }
+
+    /**
+     * @brief Binds a direct-output callable and appends it as the root node, moving prior state.
+     *
+     * This is convenience syntax for `root(yorch::bind_into<T>(f, specs...))`.
+     *
+     * @tparam T Payload type written into the root output slot.
+     * @tparam F Callable type.
+     * @tparam Specs Input binding spec types.
+     * @param f Callable to bind.
+     * @param specs Binding specs for all non-output parameters.
+     * @return A new builder whose root stores the bound direct-output task.
+     */
+    template <typename T, typename F, typename... Specs>
+        requires (sizeof...(Nodes) == 0) && detail::bind_into_signature_matches<T, F, Specs...>
+    [[nodiscard]] constexpr auto root_bind_into(F&& f, Specs&&... specs) && {
+        return std::move(*this).template node<0>(
+            yorch::bind_into<T>(std::forward<F>(f), std::forward<Specs>(specs)...));
+    }
+
+    /**
      * @brief Appends a root node wrapped in default `catch_as_failure(...)`.
      *
      * This is convenience syntax for
@@ -258,6 +317,50 @@ struct task_tree_builder {
     [[nodiscard]] constexpr auto root_catch_as_failure(F&& f, Specs&&... specs) && {
         return std::move(*this).template node<0>(yorch::catch_as_failure(
             yorch::bind(std::forward<F>(f), std::forward<Specs>(specs)...)));
+    }
+
+    /**
+     * @brief Appends a direct-output root node wrapped in default `catch_as_failure(...)`.
+     *
+     * This is convenience syntax for
+     * `root(yorch::catch_as_failure(yorch::bind_into<T>(f, specs...)))`.
+     *
+     * @tparam T Payload type written into the output sink.
+     * @tparam F Callable type.
+     * @tparam Specs Input binding spec types.
+     * @param f Callable to bind and wrap.
+     * @param specs Binding specs in call order for non-output parameters.
+     * @return A new builder whose root stores the adapted direct-output task.
+     */
+    template <typename T, typename F, typename... Specs>
+        requires (sizeof...(Nodes) == 0) &&
+                 detail::bind_into_signature_matches<T, F, Specs...> &&
+                 (!detail::catch_policy_like<std::remove_reference_t<F>>)
+    [[nodiscard]] constexpr auto root_catch_as_failure_into(F&& f, Specs&&... specs) const& {
+        return root(yorch::catch_as_failure(
+            yorch::bind_into<T>(std::forward<F>(f), std::forward<Specs>(specs)...)));
+    }
+
+    /**
+     * @brief Appends a direct-output root node wrapped in default `catch_as_failure(...)`, moving prior state.
+     *
+     * This is convenience syntax for
+     * `root(yorch::catch_as_failure(yorch::bind_into<T>(f, specs...)))`.
+     *
+     * @tparam T Payload type written into the output sink.
+     * @tparam F Callable type.
+     * @tparam Specs Input binding spec types.
+     * @param f Callable to bind and wrap.
+     * @param specs Binding specs in call order for non-output parameters.
+     * @return A new builder whose root stores the adapted direct-output task.
+     */
+    template <typename T, typename F, typename... Specs>
+        requires (sizeof...(Nodes) == 0) &&
+                 detail::bind_into_signature_matches<T, F, Specs...> &&
+                 (!detail::catch_policy_like<std::remove_reference_t<F>>)
+    [[nodiscard]] constexpr auto root_catch_as_failure_into(F&& f, Specs&&... specs) && {
+        return std::move(*this).template node<0>(yorch::catch_as_failure(
+            yorch::bind_into<T>(std::forward<F>(f), std::forward<Specs>(specs)...)));
     }
 
     /**
@@ -315,6 +418,62 @@ struct task_tree_builder {
     }
 
     /**
+     * @brief Appends a direct-output root node wrapped in policy-based `catch_as_failure(...)`.
+     *
+     * This is convenience syntax for
+     * `root(yorch::catch_as_failure(yorch::bind_into<T>(f, specs...), policy))`.
+     *
+     * @tparam T Payload type written into the output sink.
+     * @tparam Policy Exception fallback policy type.
+     * @tparam F Callable type.
+     * @tparam Specs Input binding spec types.
+     * @param policy Fallback policy invoked on exception.
+     * @param f Callable to bind and wrap.
+     * @param specs Binding specs in call order for non-output parameters.
+     * @return A new builder whose root stores the adapted direct-output task.
+     */
+    template <typename T, typename Policy, typename F, typename... Specs>
+        requires (sizeof...(Nodes) == 0) &&
+                 detail::catch_policy_like<std::remove_reference_t<Policy>> &&
+                 detail::bind_into_signature_matches<T, F, Specs...>
+    [[nodiscard]] constexpr auto root_catch_as_failure_into(
+        Policy&& policy,
+        F&& f,
+        Specs&&... specs) const& {
+        return root(yorch::catch_as_failure(
+            yorch::bind_into<T>(std::forward<F>(f), std::forward<Specs>(specs)...),
+            std::forward<Policy>(policy)));
+    }
+
+    /**
+     * @brief Appends a direct-output root node wrapped in policy-based `catch_as_failure(...)`, moving prior state.
+     *
+     * This is convenience syntax for
+     * `root(yorch::catch_as_failure(yorch::bind_into<T>(f, specs...), policy))`.
+     *
+     * @tparam T Payload type written into the output sink.
+     * @tparam Policy Exception fallback policy type.
+     * @tparam F Callable type.
+     * @tparam Specs Input binding spec types.
+     * @param policy Fallback policy invoked on exception.
+     * @param f Callable to bind and wrap.
+     * @param specs Binding specs in call order for non-output parameters.
+     * @return A new builder whose root stores the adapted direct-output task.
+     */
+    template <typename T, typename Policy, typename F, typename... Specs>
+        requires (sizeof...(Nodes) == 0) &&
+                 detail::catch_policy_like<std::remove_reference_t<Policy>> &&
+                 detail::bind_into_signature_matches<T, F, Specs...>
+    [[nodiscard]] constexpr auto root_catch_as_failure_into(
+        Policy&& policy,
+        F&& f,
+        Specs&&... specs) && {
+        return std::move(*this).template node<0>(yorch::catch_as_failure(
+            yorch::bind_into<T>(std::forward<F>(f), std::forward<Specs>(specs)...),
+            std::forward<Policy>(policy)));
+    }
+
+    /**
      * @brief Appends a root node wrapped in `with_retry(...)`.
      *
      * This is convenience syntax for
@@ -365,6 +524,62 @@ struct task_tree_builder {
         Specs&&... specs) && {
         return std::move(*this).template node<0>(yorch::with_retry(
             yorch::bind(std::forward<F>(f), std::forward<Specs>(specs)...),
+            std::forward<Policy>(policy)));
+    }
+
+    /**
+     * @brief Appends a direct-output root node wrapped in `with_retry(...)`.
+     *
+     * This is convenience syntax for
+     * `root(yorch::with_retry(yorch::bind_into<T>(f, specs...), policy))`.
+     *
+     * @tparam T Payload type written into the output sink.
+     * @tparam Policy Retry policy type.
+     * @tparam F Callable type.
+     * @tparam Specs Input binding spec types.
+     * @param policy Retry policy controlling repeated execution.
+     * @param f Callable to bind and wrap.
+     * @param specs Binding specs in call order for non-output parameters.
+     * @return A new builder whose root stores the adapted direct-output task.
+     */
+    template <typename T, typename Policy, typename F, typename... Specs>
+        requires (sizeof...(Nodes) == 0) &&
+                 retry_policy<std::decay_t<Policy>> &&
+                 detail::bind_into_signature_matches<T, F, Specs...>
+    [[nodiscard]] constexpr auto root_with_retry_into(
+        Policy&& policy,
+        F&& f,
+        Specs&&... specs) const& {
+        return root(yorch::with_retry(
+            yorch::bind_into<T>(std::forward<F>(f), std::forward<Specs>(specs)...),
+            std::forward<Policy>(policy)));
+    }
+
+    /**
+     * @brief Appends a direct-output root node wrapped in `with_retry(...)`, moving prior state.
+     *
+     * This is convenience syntax for
+     * `root(yorch::with_retry(yorch::bind_into<T>(f, specs...), policy))`.
+     *
+     * @tparam T Payload type written into the output sink.
+     * @tparam Policy Retry policy type.
+     * @tparam F Callable type.
+     * @tparam Specs Input binding spec types.
+     * @param policy Retry policy controlling repeated execution.
+     * @param f Callable to bind and wrap.
+     * @param specs Binding specs in call order for non-output parameters.
+     * @return A new builder whose root stores the adapted direct-output task.
+     */
+    template <typename T, typename Policy, typename F, typename... Specs>
+        requires (sizeof...(Nodes) == 0) &&
+                 retry_policy<std::decay_t<Policy>> &&
+                 detail::bind_into_signature_matches<T, F, Specs...>
+    [[nodiscard]] constexpr auto root_with_retry_into(
+        Policy&& policy,
+        F&& f,
+        Specs&&... specs) && {
+        return std::move(*this).template node<0>(yorch::with_retry(
+            yorch::bind_into<T>(std::forward<F>(f), std::forward<Specs>(specs)...),
             std::forward<Policy>(policy)));
     }
 
@@ -460,6 +675,47 @@ struct task_tree_builder {
     }
 
     /**
+     * @brief Binds a direct-output callable and appends it as a node at `Level`.
+     *
+     * This is convenience syntax for `node<Level>(yorch::bind_into<T>(f, specs...))`.
+     *
+     * @tparam Level Compile-time tree depth of the new node.
+     * @tparam T Payload type written into the output sink.
+     * @tparam F Callable type.
+     * @tparam Specs Input binding spec types.
+     * @param f Callable to bind.
+     * @param specs Binding specs in call order for non-output parameters.
+     * @return A new builder containing the appended direct-output task.
+     */
+    template <std::size_t Level, typename T, typename F, typename... Specs>
+        requires (detail::append_level_valid_v<Level, Nodes...>) &&
+                 detail::bind_into_signature_matches<T, F, Specs...>
+    [[nodiscard]] constexpr auto node_bind_into(F&& f, Specs&&... specs) const& {
+        return node<Level>(yorch::bind_into<T>(std::forward<F>(f), std::forward<Specs>(specs)...));
+    }
+
+    /**
+     * @brief Binds a direct-output callable and appends it as a node at `Level`, moving prior state.
+     *
+     * This is convenience syntax for `node<Level>(yorch::bind_into<T>(f, specs...))`.
+     *
+     * @tparam Level Compile-time tree depth of the new node.
+     * @tparam T Payload type written into the output sink.
+     * @tparam F Callable type.
+     * @tparam Specs Input binding spec types.
+     * @param f Callable to bind.
+     * @param specs Binding specs in call order for non-output parameters.
+     * @return A new builder containing the appended direct-output task.
+     */
+    template <std::size_t Level, typename T, typename F, typename... Specs>
+        requires (detail::append_level_valid_v<Level, Nodes...>) &&
+                 detail::bind_into_signature_matches<T, F, Specs...>
+    [[nodiscard]] constexpr auto node_bind_into(F&& f, Specs&&... specs) && {
+        return std::move(*this).template node<Level>(
+            yorch::bind_into<T>(std::forward<F>(f), std::forward<Specs>(specs)...));
+    }
+
+    /**
      * @brief Appends a node at `Level` wrapped in default `catch_as_failure(...)`.
      *
      * This is convenience syntax for
@@ -501,6 +757,52 @@ struct task_tree_builder {
     [[nodiscard]] constexpr auto node_catch_as_failure(F&& f, Specs&&... specs) && {
         return std::move(*this).template node<Level>(yorch::catch_as_failure(
             yorch::bind(std::forward<F>(f), std::forward<Specs>(specs)...)));
+    }
+
+    /**
+     * @brief Appends a direct-output node at `Level` wrapped in default `catch_as_failure(...)`.
+     *
+     * This is convenience syntax for
+     * `node<Level>(yorch::catch_as_failure(yorch::bind_into<T>(f, specs...)))`.
+     *
+     * @tparam Level Compile-time tree depth of the new node.
+     * @tparam T Payload type written into the output sink.
+     * @tparam F Callable type.
+     * @tparam Specs Input binding spec types.
+     * @param f Callable to bind and wrap.
+     * @param specs Binding specs in call order for non-output parameters.
+     * @return A new builder containing the appended adapted direct-output task.
+     */
+    template <std::size_t Level, typename T, typename F, typename... Specs>
+        requires (detail::append_level_valid_v<Level, Nodes...>) &&
+                 detail::bind_into_signature_matches<T, F, Specs...> &&
+                 (!detail::catch_policy_like<std::remove_reference_t<F>>)
+    [[nodiscard]] constexpr auto node_catch_as_failure_into(F&& f, Specs&&... specs) const& {
+        return node<Level>(yorch::catch_as_failure(
+            yorch::bind_into<T>(std::forward<F>(f), std::forward<Specs>(specs)...)));
+    }
+
+    /**
+     * @brief Appends a direct-output node at `Level` wrapped in default `catch_as_failure(...)`, moving prior state.
+     *
+     * This is convenience syntax for
+     * `node<Level>(yorch::catch_as_failure(yorch::bind_into<T>(f, specs...)))`.
+     *
+     * @tparam Level Compile-time tree depth of the new node.
+     * @tparam T Payload type written into the output sink.
+     * @tparam F Callable type.
+     * @tparam Specs Input binding spec types.
+     * @param f Callable to bind and wrap.
+     * @param specs Binding specs in call order for non-output parameters.
+     * @return A new builder containing the appended adapted direct-output task.
+     */
+    template <std::size_t Level, typename T, typename F, typename... Specs>
+        requires (detail::append_level_valid_v<Level, Nodes...>) &&
+                 detail::bind_into_signature_matches<T, F, Specs...> &&
+                 (!detail::catch_policy_like<std::remove_reference_t<F>>)
+    [[nodiscard]] constexpr auto node_catch_as_failure_into(F&& f, Specs&&... specs) && {
+        return std::move(*this).template node<Level>(yorch::catch_as_failure(
+            yorch::bind_into<T>(std::forward<F>(f), std::forward<Specs>(specs)...)));
     }
 
     /**
@@ -560,6 +862,64 @@ struct task_tree_builder {
     }
 
     /**
+     * @brief Appends a direct-output node at `Level` wrapped in policy-based `catch_as_failure(...)`.
+     *
+     * This is convenience syntax for
+     * `node<Level>(yorch::catch_as_failure(yorch::bind_into<T>(f, specs...), policy))`.
+     *
+     * @tparam Level Compile-time tree depth of the new node.
+     * @tparam T Payload type written into the output sink.
+     * @tparam Policy Exception fallback policy type.
+     * @tparam F Callable type.
+     * @tparam Specs Input binding spec types.
+     * @param policy Fallback policy invoked on exception.
+     * @param f Callable to bind and wrap.
+     * @param specs Binding specs in call order for non-output parameters.
+     * @return A new builder containing the appended adapted direct-output task.
+     */
+    template <std::size_t Level, typename T, typename Policy, typename F, typename... Specs>
+        requires (detail::append_level_valid_v<Level, Nodes...>) &&
+                 detail::catch_policy_like<std::remove_reference_t<Policy>> &&
+                 detail::bind_into_signature_matches<T, F, Specs...>
+    [[nodiscard]] constexpr auto node_catch_as_failure_into(
+        Policy&& policy,
+        F&& f,
+        Specs&&... specs) const& {
+        return node<Level>(yorch::catch_as_failure(
+            yorch::bind_into<T>(std::forward<F>(f), std::forward<Specs>(specs)...),
+            std::forward<Policy>(policy)));
+    }
+
+    /**
+     * @brief Appends a direct-output node at `Level` wrapped in policy-based `catch_as_failure(...)`, moving prior state.
+     *
+     * This is convenience syntax for
+     * `node<Level>(yorch::catch_as_failure(yorch::bind_into<T>(f, specs...), policy))`.
+     *
+     * @tparam Level Compile-time tree depth of the new node.
+     * @tparam T Payload type written into the output sink.
+     * @tparam Policy Exception fallback policy type.
+     * @tparam F Callable type.
+     * @tparam Specs Input binding spec types.
+     * @param policy Fallback policy invoked on exception.
+     * @param f Callable to bind and wrap.
+     * @param specs Binding specs in call order for non-output parameters.
+     * @return A new builder containing the appended adapted direct-output task.
+     */
+    template <std::size_t Level, typename T, typename Policy, typename F, typename... Specs>
+        requires (detail::append_level_valid_v<Level, Nodes...>) &&
+                 detail::catch_policy_like<std::remove_reference_t<Policy>> &&
+                 detail::bind_into_signature_matches<T, F, Specs...>
+    [[nodiscard]] constexpr auto node_catch_as_failure_into(
+        Policy&& policy,
+        F&& f,
+        Specs&&... specs) && {
+        return std::move(*this).template node<Level>(yorch::catch_as_failure(
+            yorch::bind_into<T>(std::forward<F>(f), std::forward<Specs>(specs)...),
+            std::forward<Policy>(policy)));
+    }
+
+    /**
      * @brief Appends a node at `Level` wrapped in `with_retry(...)`.
      *
      * This is convenience syntax for
@@ -612,6 +972,64 @@ struct task_tree_builder {
         Specs&&... specs) && {
         return std::move(*this).template node<Level>(yorch::with_retry(
             yorch::bind(std::forward<F>(f), std::forward<Specs>(specs)...),
+            std::forward<Policy>(policy)));
+    }
+
+    /**
+     * @brief Appends a direct-output node at `Level` wrapped in `with_retry(...)`.
+     *
+     * This is convenience syntax for
+     * `node<Level>(yorch::with_retry(yorch::bind_into<T>(f, specs...), policy))`.
+     *
+     * @tparam Level Compile-time tree depth of the new node.
+     * @tparam T Payload type written into the output sink.
+     * @tparam Policy Retry policy type.
+     * @tparam F Callable type.
+     * @tparam Specs Input binding spec types.
+     * @param policy Retry policy controlling repeated execution.
+     * @param f Callable to bind and wrap.
+     * @param specs Binding specs in call order for non-output parameters.
+     * @return A new builder containing the appended adapted direct-output task.
+     */
+    template <std::size_t Level, typename T, typename Policy, typename F, typename... Specs>
+        requires (detail::append_level_valid_v<Level, Nodes...>) &&
+                 retry_policy<std::decay_t<Policy>> &&
+                 detail::bind_into_signature_matches<T, F, Specs...>
+    [[nodiscard]] constexpr auto node_with_retry_into(
+        Policy&& policy,
+        F&& f,
+        Specs&&... specs) const& {
+        return node<Level>(yorch::with_retry(
+            yorch::bind_into<T>(std::forward<F>(f), std::forward<Specs>(specs)...),
+            std::forward<Policy>(policy)));
+    }
+
+    /**
+     * @brief Appends a direct-output node at `Level` wrapped in `with_retry(...)`, moving prior state.
+     *
+     * This is convenience syntax for
+     * `node<Level>(yorch::with_retry(yorch::bind_into<T>(f, specs...), policy))`.
+     *
+     * @tparam Level Compile-time tree depth of the new node.
+     * @tparam T Payload type written into the output sink.
+     * @tparam Policy Retry policy type.
+     * @tparam F Callable type.
+     * @tparam Specs Input binding spec types.
+     * @param policy Retry policy controlling repeated execution.
+     * @param f Callable to bind and wrap.
+     * @param specs Binding specs in call order for non-output parameters.
+     * @return A new builder containing the appended adapted direct-output task.
+     */
+    template <std::size_t Level, typename T, typename Policy, typename F, typename... Specs>
+        requires (detail::append_level_valid_v<Level, Nodes...>) &&
+                 retry_policy<std::decay_t<Policy>> &&
+                 detail::bind_into_signature_matches<T, F, Specs...>
+    [[nodiscard]] constexpr auto node_with_retry_into(
+        Policy&& policy,
+        F&& f,
+        Specs&&... specs) && {
+        return std::move(*this).template node<Level>(yorch::with_retry(
+            yorch::bind_into<T>(std::forward<F>(f), std::forward<Specs>(specs)...),
             std::forward<Policy>(policy)));
     }
 
