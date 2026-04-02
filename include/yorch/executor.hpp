@@ -383,7 +383,7 @@ template <typename R>
  * @param raw Raw task return object to inspect and, when applicable, move from.
  */
 template <std::size_t I, typename Slots, typename Raw>
-constexpr void store_node_output(Slots& slots, Raw& raw) {
+[[nodiscard]] constexpr bool store_node_output(Slots& slots, Raw& raw) {
     using raw_t = std::remove_cvref_t<Raw>;
 
     if constexpr (std::is_void_v<raw_t> ||
@@ -391,18 +391,26 @@ constexpr void store_node_output(Slots& slots, Raw& raw) {
                   std::is_same_v<raw_t, task_result<void>>) {
         static_cast<void>(slots);
         static_cast<void>(raw);
+        return false;
     } else if constexpr (is_task_result_v<raw_t>) {
         if (raw.step.ok()) {
+            YORCH_ASSERT(raw.has_value() &&
+                         "Successful task_result<T> must carry a payload before slot storage");
             slots.template emplace<I>(std::move(raw).value());
+            return true;
         }
+
+        return false;
     } else {
         slots.template emplace<I>(std::move(raw));
+        return true;
     }
 }
 
 template <typename Slots, std::size_t I>
 struct node_slot_guard {
     Slots& slots;
+    bool armed = false;
 
     constexpr explicit node_slot_guard(Slots& stored_slots) noexcept
         : slots(stored_slots) {}
@@ -412,8 +420,14 @@ struct node_slot_guard {
     node_slot_guard(node_slot_guard&&) = delete;
     node_slot_guard& operator=(node_slot_guard&&) = delete;
 
+    constexpr void arm() noexcept {
+        armed = true;
+    }
+
     ~node_slot_guard() {
-        slots.template destroy<I>();
+        if (armed) {
+            slots.template destroy<I>();
+        }
     }
 };
 
@@ -499,6 +513,8 @@ template <std::size_t I, typename Plan, typename Slots, typename Ec, typename Ch
         if (!step.ok()) {
             return step;
         }
+
+        guard.arm();
     } else if constexpr (std::is_void_v<raw_result_t>) {
         task.invoke_raw(ec);
     } else {
@@ -507,7 +523,9 @@ template <std::size_t I, typename Plan, typename Slots, typename Ec, typename Ch
             const auto current = extract_step_result(raw);
 
             if (current.ok()) {
-                store_node_output<I>(slots, raw);
+                if (store_node_output<I>(slots, raw)) {
+                    guard.arm();
+                }
             }
 
             return current;

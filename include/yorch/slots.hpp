@@ -7,9 +7,24 @@
 
 #include "context.hpp"
 #include "detail/maybe_storage.hpp"
+#include "detail/slot_policy.hpp"
 #include "result.hpp"
 
 namespace yorch::detail {
+
+template <slot_policy Policy>
+struct slot_state {};
+
+template <>
+struct slot_state<slot_policy::none> {};
+
+template <>
+struct slot_state<slot_policy::maybe_payload> {};
+
+template <>
+struct slot_state<slot_policy::must_payload> {
+    bool live = false;
+};
 
 /**
  * @brief Fixed in-place payload slot for one statically known node output type.
@@ -27,10 +42,13 @@ namespace yorch::detail {
  *
  * @tparam T Concrete payload type stored in this slot. Must not be `void`.
  */
-template <typename T>
+template <typename T, slot_policy Policy = slot_policy::maybe_payload>
 struct typed_slot {
     static_assert(!std::is_void_v<T>,
                   "yorch::detail::typed_slot<T> requires a non-void type");
+    static_assert(Policy == slot_policy::maybe_payload ||
+                      Policy == slot_policy::must_payload,
+                  "yorch::detail::typed_slot<T> only supports maybe_payload or must_payload policies");
 
     typed_slot() = default;
     typed_slot(const typed_slot&) = delete;
@@ -81,7 +99,7 @@ private:
 };
 
 template <>
-struct typed_slot<void> {
+struct typed_slot<void, slot_policy::none> {
     typed_slot() = default;
     typed_slot(const typed_slot&) = delete;
     typed_slot& operator=(const typed_slot&) = delete;
@@ -91,9 +109,54 @@ struct typed_slot<void> {
 
     constexpr void destroy() noexcept {}
 
-    [[nodiscard]] static constexpr bool has_value() noexcept {
+    // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+    [[nodiscard]] constexpr bool has_value() const noexcept {
         return false;
     }
+};
+
+template <typename T>
+struct typed_slot<T, slot_policy::must_payload> {
+    static_assert(!std::is_void_v<T>,
+                  "yorch::detail::typed_slot<T, must_payload> requires a non-void type");
+
+    typed_slot() = default;
+    typed_slot(const typed_slot&) = delete;
+    typed_slot& operator=(const typed_slot&) = delete;
+    typed_slot(typed_slot&&) = delete;
+    typed_slot& operator=(typed_slot&&) = delete;
+
+    ~typed_slot() = default;
+
+    template <typename... Args>
+    constexpr T& emplace(Args&&... args)
+        noexcept(std::is_nothrow_constructible_v<T, Args&&...>) {
+        return *std::construct_at(ptr(), std::forward<Args>(args)...);
+    }
+
+    [[nodiscard]] constexpr T& get() & noexcept {
+        return *ptr();
+    }
+
+    [[nodiscard]] constexpr const T& get() const& noexcept {
+        return *ptr();
+    }
+
+    constexpr void destroy() noexcept {
+        std::destroy_at(ptr());
+    }
+
+private:
+    [[nodiscard]] constexpr T* ptr() noexcept {
+        return std::launder(reinterpret_cast<T*>(storage_));
+    }
+
+    [[nodiscard]] constexpr const T* ptr() const noexcept {
+        return std::launder(reinterpret_cast<const T*>(storage_));
+    }
+
+    // NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays, modernize-avoid-c-arrays)
+    alignas(T) std::byte storage_[sizeof(T)] {};
 };
 
 /**
@@ -113,7 +176,13 @@ struct typed_slot<void> {
  */
 template <typename Plan, std::size_t... I>
 [[nodiscard]] auto make_plan_slots_tuple(std::index_sequence<I...>)
-    -> std::tuple<typed_slot<typename Plan::template output_type<I>>...>;
+    -> std::tuple<typed_slot<
+        typename Plan::template output_type<I>,
+        Plan::template slot_policy_for<I>>...>;
+
+template <typename Plan, std::size_t... I>
+[[nodiscard]] auto make_plan_slot_states_tuple(std::index_sequence<I...>)
+    -> std::tuple<slot_state<Plan::template slot_policy_for<I>>...>;
 
 /**
  * @brief Tuple storage type holding one `typed_slot` per node of `Plan`.
@@ -126,6 +195,10 @@ template <typename Plan, std::size_t... I>
 template <typename Plan>
 using plan_slots_tuple_t =
     decltype(make_plan_slots_tuple<Plan>(std::make_index_sequence<Plan::node_count> {}));
+
+template <typename Plan>
+using plan_slot_states_tuple_t =
+    decltype(make_plan_slot_states_tuple<Plan>(std::make_index_sequence<Plan::node_count> {}));
 
 /**
  * @brief Reports whether node `I` of `Plan` carries a concrete payload slot.
@@ -161,7 +234,8 @@ struct result_out {
     static_assert(!std::is_void_v<T>,
                   "yorch::result_out<T> requires a non-void payload type");
 
-    constexpr explicit result_out(detail::typed_slot<T>& slot) noexcept
+    constexpr explicit result_out(
+        detail::typed_slot<T, detail::slot_policy::maybe_payload>& slot) noexcept
         : slot_(slot) {}
 
     template <typename... Args>
@@ -187,7 +261,7 @@ struct result_out {
 
 private:
     // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
-    detail::typed_slot<T>& slot_;
+    detail::typed_slot<T, detail::slot_policy::maybe_payload>& slot_;
 };
 
 /**
@@ -215,8 +289,20 @@ private:
 template <typename Plan>
 struct plan_slots {
     using tuple_type = detail::plan_slots_tuple_t<Plan>;
+    using state_tuple_type = detail::plan_slot_states_tuple_t<Plan>;
+
+    plan_slots() = default;
+    plan_slots(const plan_slots&) = delete;
+    plan_slots& operator=(const plan_slots&) = delete;
+    plan_slots(plan_slots&&) = delete;
+    plan_slots& operator=(plan_slots&&) = delete;
 
     tuple_type storage {};
+    state_tuple_type states {};
+
+    ~plan_slots() {
+        destroy_all(std::make_index_sequence<Plan::node_count> {});
+    }
 
     template <std::size_t I>
     using output_type = typename Plan::template output_type<I>;
@@ -225,9 +311,14 @@ struct plan_slots {
     static constexpr std::size_t slot_index = Plan::template slot_index<I>;
 
     template <std::size_t I>
+    static constexpr detail::slot_policy slot_policy = Plan::template slot_policy_for<I>;
+
+    template <std::size_t I>
     [[nodiscard]] constexpr bool has_value() const noexcept {
         if constexpr (std::is_void_v<output_type<I>>) {
             return false;
+        } else if constexpr (slot_policy<I> == detail::slot_policy::must_payload) {
+            return state<I>().live;
         } else {
             return slot<I>().has_value();
         }
@@ -252,11 +343,18 @@ struct plan_slots {
     constexpr auto emplace(Args&&... args)
         noexcept(noexcept(slot<I>().emplace(std::forward<Args>(args)...)))
         -> output_type<I>& {
-        return slot<I>().emplace(std::forward<Args>(args)...);
+        auto& value = slot<I>().emplace(std::forward<Args>(args)...);
+
+        if constexpr (slot_policy<I> == detail::slot_policy::must_payload) {
+            state<I>().live = true;
+        }
+
+        return value;
     }
 
     template <std::size_t I>
         requires detail::payload_node<Plan, I>
+              && (slot_policy<I> == detail::slot_policy::maybe_payload)
     [[nodiscard]] constexpr auto out() & noexcept -> result_out<output_type<I>> {
         return result_out<output_type<I>> {slot<I>()};
     }
@@ -264,18 +362,37 @@ struct plan_slots {
     template <std::size_t I>
         requires detail::payload_node<Plan, I>
     [[nodiscard]] constexpr auto get() & noexcept -> output_type<I>& {
+        if constexpr (slot_policy<I> == detail::slot_policy::must_payload) {
+            YORCH_ASSERT(state<I>().live &&
+                         "yorch::plan_slots<Plan>::get<I>() called on an empty must-payload slot");
+        }
         return slot<I>().get();
     }
 
     template <std::size_t I>
         requires detail::payload_node<Plan, I>
     [[nodiscard]] constexpr auto get() const& noexcept -> const output_type<I>& {
+        if constexpr (slot_policy<I> == detail::slot_policy::must_payload) {
+            YORCH_ASSERT(state<I>().live &&
+                         "yorch::plan_slots<Plan>::get<I>() called on an empty must-payload slot");
+        }
         return slot<I>().get();
     }
 
     template <std::size_t I>
     constexpr void destroy() noexcept {
-        slot<I>().destroy();
+        if constexpr (std::is_void_v<output_type<I>>) {
+            return;
+        } else if constexpr (slot_policy<I> == detail::slot_policy::must_payload) {
+            if (!state<I>().live) {
+                return;
+            }
+
+            slot<I>().destroy();
+            state<I>().live = false;
+        } else {
+            slot<I>().destroy();
+        }
     }
 
     template <std::size_t I>
@@ -301,6 +418,9 @@ private:
     using slot_type = std::tuple_element_t<slot_index<I>, tuple_type>;
 
     template <std::size_t I>
+    using state_type = std::tuple_element_t<slot_index<I>, state_tuple_type>;
+
+    template <std::size_t I>
     [[nodiscard]] constexpr auto slot() & noexcept -> slot_type<I>& {
         return std::get<slot_index<I>>(storage);
     }
@@ -308,6 +428,21 @@ private:
     template <std::size_t I>
     [[nodiscard]] constexpr auto slot() const& noexcept -> const slot_type<I>& {
         return std::get<slot_index<I>>(storage);
+    }
+
+    template <std::size_t I>
+    [[nodiscard]] constexpr auto state() & noexcept -> state_type<I>& {
+        return std::get<slot_index<I>>(states);
+    }
+
+    template <std::size_t I>
+    [[nodiscard]] constexpr auto state() const& noexcept -> const state_type<I>& {
+        return std::get<slot_index<I>>(states);
+    }
+
+    template <std::size_t... I>
+    constexpr void destroy_all(std::index_sequence<I...>) noexcept {
+        (destroy<I>(), ...);
     }
 };
 

@@ -1,9 +1,11 @@
 #include "yorch/plan.hpp"
 
 #include "yorch/bind.hpp"
+#include "yorch/task_adapters.hpp"
 
 #include <gtest/gtest.h>
 
+#include <exception>
 #include <memory>
 #include <string>
 #include <type_traits>
@@ -75,6 +77,11 @@ TEST(PlanTest, CompilePlanRecoversParentChildStructureAndOutputMetadata) {
     static_assert(std::is_same_v<plan_t::template output_type<2>, void>);
     static_assert(std::is_same_v<plan_t::template output_type<3>, void>);
     static_assert(std::is_same_v<plan_t::template output_type<4>, bool>);
+    static_assert(plan_t::template slot_policy_for<0> == yorch::detail::slot_policy::must_payload);
+    static_assert(plan_t::template slot_policy_for<1> == yorch::detail::slot_policy::maybe_payload);
+    static_assert(plan_t::template slot_policy_for<2> == yorch::detail::slot_policy::none);
+    static_assert(plan_t::template slot_policy_for<3> == yorch::detail::slot_policy::none);
+    static_assert(plan_t::template slot_policy_for<4> == yorch::detail::slot_policy::must_payload);
 
     EXPECT_EQ(plan_t::parent_indices[0], plan_t::no_parent);
     EXPECT_EQ(plan_t::parent_indices[1], 0);
@@ -163,6 +170,50 @@ TEST(PlanTest, CompilePlanPrefersDeclaredTaskOutputTypeForDirectOutputTasks) {
     static_assert(std::is_same_v<plan_t::template raw_result_type<1>, yorch::step_result>);
     static_assert(std::is_same_v<plan_t::template output_type<0>, std::string>);
     static_assert(std::is_same_v<plan_t::template output_type<1>, int>);
+    static_assert(plan_t::template slot_policy_for<0> == yorch::detail::slot_policy::maybe_payload);
+    static_assert(plan_t::template slot_policy_for<1> == yorch::detail::slot_policy::maybe_payload);
+
+    SUCCEED();
+}
+
+TEST(PlanTest, CompilePlanInfersSlotPoliciesFromFinalTaskProtocols) {
+    auto tree = yorch::task_tree.root(yorch::bind([]() noexcept -> int {
+            return 1;
+        }))
+        .node<1>(yorch::bind([]() noexcept -> yorch::task_result<std::string> {
+            return yorch::task_result<std::string>::success("child");
+        }))
+        .node<1>(yorch::bind([]() noexcept -> yorch::step_result {
+            return yorch::step_result::success();
+        }))
+        .node<1>(yorch::bind([]() noexcept {}))
+        .node<1>(yorch::bind_into<int>(
+            [](yorch::result_out<int> out) noexcept -> yorch::step_result {
+                return out.success(3);
+            }))
+        .node<1>(yorch::with_retry(
+            yorch::bind([]() noexcept -> bool {
+                return true;
+            }),
+            yorch::retry_fixed_policy {1}))
+        .node<1>(yorch::catch_as_failure(
+            yorch::bind([]() -> int {
+                throw std::runtime_error("boom");
+            }),
+            [](const std::exception_ptr&) noexcept -> int {
+                return 7;
+            }));
+
+    auto plan = yorch::compile_plan(tree);
+    using plan_t = decltype(plan);
+
+    static_assert(plan_t::template slot_policy_for<0> == yorch::detail::slot_policy::must_payload);
+    static_assert(plan_t::template slot_policy_for<1> == yorch::detail::slot_policy::maybe_payload);
+    static_assert(plan_t::template slot_policy_for<2> == yorch::detail::slot_policy::none);
+    static_assert(plan_t::template slot_policy_for<3> == yorch::detail::slot_policy::none);
+    static_assert(plan_t::template slot_policy_for<4> == yorch::detail::slot_policy::maybe_payload);
+    static_assert(plan_t::template slot_policy_for<5> == yorch::detail::slot_policy::must_payload);
+    static_assert(plan_t::template slot_policy_for<6> == yorch::detail::slot_policy::must_payload);
 
     SUCCEED();
 }

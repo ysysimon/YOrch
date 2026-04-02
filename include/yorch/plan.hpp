@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "result.hpp"
+#include "detail/slot_policy.hpp"
 #include "task_tree.hpp"
 
 namespace yorch::detail {
@@ -132,6 +133,34 @@ struct task_output_for<
 
 template <typename Task>
 using task_output_for_t = typename task_output_for<Task>::type;
+
+template <typename Task, typename = void>
+struct task_slot_policy {
+private:
+    using raw_t = task_raw_result_t<Task>;
+
+public:
+    static constexpr slot_policy value =
+        std::is_void_v<raw_t> ||
+                std::is_same_v<raw_t, step_result> ||
+                std::is_same_v<raw_t, task_result<void>>
+            ? slot_policy::none
+        : is_task_result_v<raw_t>
+            ? slot_policy::maybe_payload
+            : slot_policy::must_payload;
+};
+
+template <typename Task>
+struct task_slot_policy<
+    Task,
+    std::void_t<typename plan_declared_task_output<Task>::type>
+> {
+    static constexpr slot_policy value = slot_policy::maybe_payload;
+};
+
+template <typename Task>
+inline constexpr slot_policy task_slot_policy_v =
+    task_slot_policy<Task>::value;
 
 template <typename... Nodes>
 [[nodiscard]] consteval auto make_level_array() {
@@ -329,6 +358,10 @@ struct compiled_plan {
 
     template <std::size_t I>
     using output_type = detail::task_output_for_t<task_type<I>>;
+
+    template <std::size_t I>
+    static constexpr detail::slot_policy slot_policy_for =
+        detail::task_slot_policy_v<task_type<I>>;
 
     template <std::size_t I>
     static constexpr std::size_t level = levels[I];

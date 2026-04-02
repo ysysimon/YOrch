@@ -152,6 +152,11 @@ TEST(SlotsTest, PlanSlotsExposePerNodeOutputTypesAndLifecycle) {
     static_assert(std::is_same_v<typename slots_t::template output_type<2>, void>);
     static_assert(std::is_same_v<typename slots_t::template output_type<3>, void>);
     static_assert(std::is_same_v<typename slots_t::template output_type<4>, bool>);
+    static_assert(slots_t::template slot_policy<0> == yorch::detail::slot_policy::must_payload);
+    static_assert(slots_t::template slot_policy<1> == yorch::detail::slot_policy::maybe_payload);
+    static_assert(slots_t::template slot_policy<2> == yorch::detail::slot_policy::none);
+    static_assert(slots_t::template slot_policy<3> == yorch::detail::slot_policy::none);
+    static_assert(slots_t::template slot_policy<4> == yorch::detail::slot_policy::must_payload);
     static_assert(can_emplace_slot<slots_t, 0, int>);
     static_assert(can_emplace_slot<slots_t, 1, std::string>);
     static_assert(!can_emplace_slot<slots_t, 2>);
