@@ -41,6 +41,7 @@ using policy_payload_bound_task_t = decltype(yorch::bind([]() -> yorch::task_res
     return yorch::task_result<int>::success(1);
 }));
 
+// NOLINTNEXTLINE(performance-unnecessary-value-param)
 using compatible_exception_policy_t = decltype([](std::exception_ptr) noexcept -> yorch::task_result<int> {
     return yorch::task_result<int>::failure();
 });
@@ -143,6 +144,32 @@ TEST(TaskAdaptersTest, CatchAsFailureUsesFallbackPolicyForPayloadTask) {
     const auto raw = task.invoke_raw(exec);
 
     EXPECT_EQ(raw.step.status, yorch::step_status::failure);
+    EXPECT_FALSE(raw.has_value());
+}
+
+TEST(TaskAdaptersTest, CatchAsFailureAlsoAcceptsByValueFallbackPolicy) {
+    yorch::exec_context<void> exec;
+
+    auto task = yorch::catch_as_failure(
+        yorch::bind(
+            []() -> yorch::task_result<int> {
+                throw std::runtime_error("boom");
+            }),
+        // NOLINTNEXTLINE(performance-unnecessary-value-param)
+        [](std::exception_ptr ep) noexcept -> yorch::task_result<int> {
+            try {
+                std::rethrow_exception(ep);
+            } catch (const std::runtime_error&) {
+                return yorch::task_result<int>::abort_branch();
+            } catch (...) {
+                return yorch::task_result<int>::failure();
+            }
+            return yorch::task_result<int>::failure();
+        });
+
+    const auto raw = task.invoke_raw(exec);
+
+    EXPECT_EQ(raw.step.status, yorch::step_status::abort_branch);
     EXPECT_FALSE(raw.has_value());
 }
 
