@@ -77,10 +77,11 @@ struct catch_failure_task
  * @brief Exception-catching adapter for tasks with a user-supplied fallback
  * policy.
  *
- * The policy is invoked with `std::exception_ptr` and must itself be
- * `noexcept`, allowing the wrapper to present a `noexcept invoke_raw(...)`
- * surface to the executor while still giving users control over failure-path
- * raw results.
+ * The policy must be `noexcept` and support a captured exception either by
+ * value (`std::exception_ptr`) or by const lvalue reference
+ * (`const std::exception_ptr&`), allowing the wrapper to present a
+ * `noexcept invoke_raw(...)` surface to the executor while still giving users
+ * control over failure-path raw results.
  *
  * @tparam Task Stored task type.
  * @tparam Policy Stored fallback policy type.
@@ -179,8 +180,10 @@ constexpr auto catch_as_failure(Task&& task) {
  * @brief Wraps a task so thrown exceptions are routed to a user fallback
  * policy.
  *
- * The policy contract is `policy(std::exception_ptr) noexcept`, and its return
- * type must be compatible with the wrapped task's raw return category.
+ * The policy contract is a `noexcept` call accepting the captured exception
+ * either by value (`std::exception_ptr`) or by const lvalue reference
+ * (`const std::exception_ptr&`). Its return type must be compatible with the
+ * wrapped task's raw return category.
  *
  * As with the default overload, exceptions may originate anywhere inside the
  * wrapped task's `invoke_raw(...)` path, including parameter resolution and

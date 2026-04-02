@@ -60,7 +60,9 @@ inline constexpr bool default_catch_supported_v =
 /**
  * @brief Extracts the result type returned by an exception fallback policy.
  *
- * The policy contract is `policy(std::exception_ptr) noexcept`.
+ * The policy contract is a `noexcept` call that accepts a captured exception
+ * either by value (`std::exception_ptr`) or by const lvalue reference
+ * (`const std::exception_ptr&`).
  *
  * @tparam Policy Policy type stored inside `catch_as_failure(task, policy)`.
  * @tparam Enable SFINAE hook used to detect whether the policy is invocable.
@@ -69,8 +71,8 @@ template <typename Policy, typename = void>
 struct policy_result;
 
 template <typename Policy>
-struct policy_result<Policy, std::void_t<std::invoke_result_t<Policy&, std::exception_ptr>>> {
-    using type = std::invoke_result_t<Policy&, std::exception_ptr>;
+struct policy_result<Policy, std::void_t<std::invoke_result_t<Policy&, const std::exception_ptr&>>> {
+    using type = std::invoke_result_t<Policy&, const std::exception_ptr&>;
 };
 
 template <typename Policy>
@@ -184,7 +186,8 @@ struct forwarded_task_output_base<
  * task result type `R`.
  *
  * Compatibility means:
- * - the policy is invocable as `policy(std::exception_ptr)` and is `noexcept`
+ * - the policy is invocable as `policy(const std::exception_ptr&)` and is
+ *   `noexcept`
  * - for `void` tasks, the policy returns `step_result` or `task_result<void>`
  * - for non-void tasks, the policy result is convertible to the raw result
  *
@@ -197,9 +200,12 @@ template <typename R, typename Policy, typename = void>
 struct catch_policy_supported : std::false_type {};
 
 template <typename R, typename Policy>
-struct catch_policy_supported<R, Policy, std::void_t<std::invoke_result_t<Policy&, std::exception_ptr>>>
+struct catch_policy_supported<
+    R,
+    Policy,
+    std::void_t<std::invoke_result_t<Policy&, const std::exception_ptr&>>>
     : std::bool_constant<
-          std::is_nothrow_invocable_v<Policy&, std::exception_ptr> &&
+          std::is_nothrow_invocable_v<Policy&, const std::exception_ptr&> &&
           (std::is_void_v<R>
                ? (std::is_same_v<policy_result_t<Policy>, step_result> ||
                   std::is_same_v<policy_result_t<Policy>, task_result<void>>)

@@ -66,7 +66,7 @@ concept catch_policy_compatible_task =
 template <typename Task, typename Policy, typename Ctx, typename Prev = no_prev>
 concept catch_policy_compatible_direct_output_task =
     direct_output_task<Task, Ctx, Prev> &&
-    std::is_nothrow_invocable_r_v<step_result, Policy&, std::exception_ptr>;
+    std::is_nothrow_invocable_r_v<step_result, Policy&, const std::exception_ptr&>;
 
 /**
  * @brief Reports whether a retry policy exposes the minimal protocol required

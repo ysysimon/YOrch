@@ -111,14 +111,16 @@ concept bind_signature_matches =
  * `catch_as_failure(callable, specs...)` and
  * `catch_as_failure(policy, callable, specs...)` forms. This concept helps the
  * overload set distinguish those two cases by checking for the core policy
- * contract used by the underlying adapter: the object must be invocable as
- * `policy(std::exception_ptr)` and that call itself must be `noexcept`.
+ * contract used by the underlying adapter: the object must be invocable with
+ * a captured exception either by value (`std::exception_ptr`) or by const
+ * lvalue reference (`const std::exception_ptr&`), and that call itself must
+ * be `noexcept`.
  *
  * @tparam Policy Candidate fallback policy type.
  */
 template <typename Policy>
 concept catch_policy_like =
-    requires(Policy& policy, std::exception_ptr ep) {
+    requires(Policy& policy, const std::exception_ptr& ep) {
         { policy(ep) } noexcept;
     };
 

@@ -41,10 +41,19 @@ using policy_payload_bound_task_t = decltype(yorch::bind([]() -> yorch::task_res
     return yorch::task_result<int>::success(1);
 }));
 
-// NOLINTNEXTLINE(performance-unnecessary-value-param)
 using compatible_exception_policy_t = decltype([](std::exception_ptr) noexcept -> yorch::task_result<int> {
     return yorch::task_result<int>::failure();
 });
+
+using compatible_exception_policy_ref_t =
+    decltype([](const std::exception_ptr&) noexcept -> yorch::task_result<int> {
+        return yorch::task_result<int>::failure();
+    });
+
+using incompatible_exception_policy_rvalue_ref_t =
+    decltype([](std::exception_ptr&&) noexcept -> yorch::task_result<int> {
+        return yorch::task_result<int>::failure();
+    });
 
 using incompatible_exception_policy_t = decltype([]() noexcept -> yorch::task_result<int> {
     return yorch::task_result<int>::failure();
@@ -55,10 +64,14 @@ using direct_output_task_t = decltype(yorch::bind_into<int>(
         return out.success(1);
     }));
 
-// NOLINTNEXTLINE(performance-unnecessary-value-param)
 using compatible_direct_output_policy_t = decltype([](std::exception_ptr) noexcept -> yorch::step_result {
     return yorch::step_result::failure();
 });
+
+using compatible_direct_output_policy_ref_t =
+    decltype([](const std::exception_ptr&) noexcept -> yorch::step_result {
+        return yorch::step_result::failure();
+    });
 
 }  // namespace
 
@@ -73,9 +86,21 @@ static_assert(yorch::catch_policy_compatible_task<
               policy_payload_bound_task_t,
               compatible_exception_policy_t,
               void>);
+static_assert(yorch::catch_policy_compatible_task<
+              policy_payload_bound_task_t,
+              compatible_exception_policy_ref_t,
+              void>);
+static_assert(!yorch::catch_policy_compatible_task<
+              policy_payload_bound_task_t,
+              incompatible_exception_policy_rvalue_ref_t,
+              void>);
 static_assert(yorch::catch_policy_compatible_direct_output_task<
               direct_output_task_t,
               compatible_direct_output_policy_t,
+              void>);
+static_assert(yorch::catch_policy_compatible_direct_output_task<
+              direct_output_task_t,
+              compatible_direct_output_policy_ref_t,
               void>);
 static_assert(!yorch::catch_policy_compatible_task<
               policy_payload_bound_task_t,
@@ -104,8 +129,7 @@ TEST(TaskAdaptersTest, CatchAsFailureUsesFallbackPolicyForPayloadTask) {
             []() -> yorch::task_result<int> {
                 throw std::runtime_error("boom");
             }),
-                // NOLINTNEXTLINE(performance-unnecessary-value-param)
-        [](std::exception_ptr ep) noexcept -> yorch::task_result<int> {
+        [](const std::exception_ptr& ep) noexcept -> yorch::task_result<int> {
             try {
                 std::rethrow_exception(ep);
             } catch (const std::runtime_error&) {
@@ -131,8 +155,7 @@ TEST(TaskAdaptersTest, CatchAsFailureCanCatchResolutionExceptions) {
                 return value;
             },
             yorch::value(throwing_int_source {42})),
-                // NOLINTNEXTLINE(performance-unnecessary-value-param)
-        [](std::exception_ptr) noexcept -> int {
+        [](const std::exception_ptr&) noexcept -> int {
             return -7;
         });
 

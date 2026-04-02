@@ -39,7 +39,9 @@ template <typename R>
  * @return A raw result compatible with `R`.
  */
 template <typename R, typename Policy>
-[[nodiscard]] inline auto policy_catch_failure_result(Policy& policy, std::exception_ptr ep) noexcept {
+[[nodiscard]] inline auto policy_catch_failure_result(
+    Policy& policy,
+    const std::exception_ptr& ep) noexcept {
     static_assert(catch_policy_supported_v<R, Policy>,
                   "catch_as_failure(task, policy) requires a noexcept fallback taking std::exception_ptr and returning a compatible result");
 
