@@ -1,12 +1,14 @@
 #pragma once
 
-#include "yorch/context.hpp" // IWYU pragma: export
-#include "yorch/result.hpp" // IWYU pragma: export
-#include "yorch/specs.hpp" // IWYU pragma: export
-#include "yorch/resolve.hpp" // IWYU pragma: export
-#include "yorch/bind.hpp" // IWYU pragma: export
-#include "yorch/task_adapters.hpp" // IWYU pragma: export
-#include "yorch/executor.hpp" // IWYU pragma: export
-#include "yorch/task_tree.hpp" // IWYU pragma: export
-#include "yorch/plan.hpp" // IWYU pragma: export
-#include "yorch/slots.hpp" // IWYU pragma: export
+// IWYU pragma: begin_exports
+#include "yorch/context.hpp"
+#include "yorch/result.hpp"
+#include "yorch/specs.hpp"
+#include "yorch/resolve.hpp"
+#include "yorch/bind.hpp"
+#include "yorch/task_adapters.hpp"
+#include "yorch/executor.hpp"
+#include "yorch/task_tree.hpp"
+#include "yorch/plan.hpp"
+#include "yorch/slots.hpp"
+// IWYU pragma: end_exports

@@ -1,5 +1,11 @@
+If:
+  PathMatch: ^(include/yorch|src|tests)/.*
+
 CompileFlags:
   CompilationDatabase: build/dev
+  Add:
+    - -std=gnu++20
+    - -Iinclude
 
 Index:
   Background: Build

@@ -1,9 +1,9 @@
 #pragma once
-#include <utility>
 #include <type_traits>
+#include <utility>
 
-#include "yorch/assert.hpp"
-#include "yorch/detail/maybe_storage.hpp"
+#include "assert.hpp"
+#include "detail/maybe_storage.hpp"
 
 namespace yorch {
 

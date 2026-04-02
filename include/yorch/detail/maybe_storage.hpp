@@ -6,7 +6,7 @@
 #include <type_traits>
 #include <utility>
 
-#include "yorch/assert.hpp"
+#include "../assert.hpp"
 
 namespace yorch::detail {
 
