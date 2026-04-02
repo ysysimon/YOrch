@@ -43,6 +43,7 @@ public:
         = delete;
 
     constexpr maybe_storage(maybe_storage&& other)
+        // NOLINTNEXTLINE(cppcoreguidelines-noexcept-move-operations, performance-noexcept-move-constructor)
         noexcept(std::is_nothrow_move_constructible_v<T>)
         requires std::move_constructible<T>
     {
@@ -56,8 +57,7 @@ public:
         = delete;
 
     constexpr maybe_storage& operator=(const maybe_storage& other)
-        noexcept(std::is_nothrow_copy_constructible_v<T> &&
-                 std::is_nothrow_copy_assignable_v<T>)
+        noexcept(assign_from_nothrow_v<const maybe_storage&>)
         requires std::copy_constructible<T>
     {
         if (this == &other) {
@@ -73,8 +73,8 @@ public:
         = delete;
 
     constexpr maybe_storage& operator=(maybe_storage&& other)
-        noexcept(std::is_nothrow_move_constructible_v<T> &&
-                 std::is_nothrow_move_assignable_v<T>)
+        // NOLINTNEXTLINE(cppcoreguidelines-noexcept-move-operations, performance-noexcept-move-constructor)
+        noexcept(assign_from_nothrow_v<maybe_storage&&>)
         requires std::move_constructible<T>
     {
         if (this == &other) {
@@ -138,7 +138,17 @@ public:
 
 private:
     template <typename Storage>
-    constexpr void assign_from(Storage&& other) {
+    using storage_value_t = decltype(std::declval<Storage>().get());
+
+    template <typename Storage>
+    static constexpr bool assign_from_nothrow_v =
+        std::is_nothrow_destructible_v<T> &&
+        std::is_nothrow_constructible_v<T, storage_value_t<Storage>> &&
+        (!std::is_assignable_v<T&, storage_value_t<Storage>> ||
+         std::is_nothrow_assignable_v<T&, storage_value_t<Storage>>);
+
+    template <typename Storage>
+    constexpr void assign_from(Storage&& other) noexcept(assign_from_nothrow_v<Storage&&>) {
         if (other.has_value()) {
             if (engaged_) {
                 if constexpr (std::is_assignable_v<T&, decltype(std::forward<Storage>(other).get())>) {
@@ -163,6 +173,7 @@ private:
         return std::launder(reinterpret_cast<const T*>(storage_));
     }
 
+    // NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays, modernize-avoid-c-arrays)
     alignas(T) std::byte storage_[sizeof(T)] {};
     bool engaged_ = false;
 };
