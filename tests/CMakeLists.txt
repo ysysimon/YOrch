@@ -20,7 +20,11 @@ endif()
 function(yorch_add_gtest target_name link_target source_file)
   add_executable(${target_name} ${source_file})
   target_link_libraries(${target_name} PRIVATE ${link_target} GTest::gtest_main)
-  gtest_discover_tests(${target_name} TEST_PREFIX "yorch.")
+  gtest_discover_tests(${target_name}
+    TEST_PREFIX "yorch."
+    DISCOVERY_MODE PRE_TEST
+    DISCOVERY_TIMEOUT 30
+  )
 endfunction()
 
 yorch_add_gtest(test_result yorch::yorch test_result.cpp)
