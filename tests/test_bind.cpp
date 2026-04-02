@@ -231,7 +231,10 @@ TEST(BindTest, BoundOutputTaskNormalizesVoidCallableReturnToSuccess) {
             out.emplace(9);
         });
 
-    const auto result = task.invoke_raw(exec);
+    yorch::detail::typed_slot<int> slot;
+    const auto result = task.invoke_into(exec, yorch::result_out<int> {slot});
 
     EXPECT_TRUE(result.ok());
+    EXPECT_TRUE(slot.has_value());
+    EXPECT_EQ(slot.get(), 9);
 }

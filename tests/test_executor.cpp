@@ -117,6 +117,7 @@ using direct_output_task_t = decltype(yorch::bind_into<int>(
     [](yorch::result_out<int> out) noexcept -> yorch::step_result {
         return out.success(1);
     }));
+static_assert(!yorch::executable_task<direct_output_task_t&, void>);
 static_assert(yorch::executable_direct_output_task<direct_output_task_t&, void>);
 
 using throwing_bound_task_t = decltype(yorch::bind([]() -> yorch::step_result {
@@ -228,7 +229,7 @@ TEST(ExecutorTest, RunTaskNormalizesVoidTaskResult) {
     EXPECT_EQ(result.status, yorch::step_status::abort_branch);
 }
 
-TEST(ExecutorTest, RunTaskSupportsDirectOutputTasksViaFallbackInvokeRaw) {
+TEST(ExecutorTest, RunTaskIntoSupportsDirectOutputTasks) {
     yorch::context<int> ctx(4);
     yorch::exec_context<decltype(ctx)> exec {ctx};
 
@@ -239,10 +240,13 @@ TEST(ExecutorTest, RunTaskSupportsDirectOutputTasksViaFallbackInvokeRaw) {
         },
         yorch::from_ctx<int>());
 
-    const auto result = yorch::run_task(task, exec);
+    yorch::detail::typed_slot<int> slot;
+    const auto result = yorch::run_task_into(task, exec, yorch::result_out<int> {slot});
 
     EXPECT_TRUE(result.ok());
     EXPECT_EQ(ctx.get<int>(), 7);
+    EXPECT_TRUE(slot.has_value());
+    EXPECT_EQ(slot.get(), 14);
 }
 
 TEST(ExecutorTest, RunTaskExecutesCatchAsFailureAdapterEndToEnd) {

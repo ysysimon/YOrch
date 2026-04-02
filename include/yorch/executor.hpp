@@ -672,10 +672,12 @@ template <std::size_t I, std::size_t Ord, typename Plan, typename Slots, typenam
  *
  * In the current design, `run_task(...)` remains thin: it resolves no
  * arguments by itself and only normalizes the raw return emitted by the task's
- * `invoke_raw(...)` protocol. The function intentionally accepts only the
- * no-throw execution surface modeled by `executable_task`; potentially
- * throwing tasks must first be wrapped into a no-throw adapter such as
- * `catch_as_failure(...)`.
+ * `invoke_raw(...)` protocol. Direct-output tasks that write into a slot-like
+ * sink should instead use `run_task_into(...)`.
+ *
+ * The function intentionally accepts only the no-throw execution surface
+ * modeled by `executable_task`; potentially throwing tasks must first be
+ * wrapped into a no-throw adapter such as `catch_as_failure(...)`.
  *
  * @tparam Task Executable task type, typically `bound_task`.
  * @tparam Ctx Borrowed execution-context schema.
@@ -705,6 +707,41 @@ template <typename Task, typename Ctx, typename Prev = no_prev>
             std::forward<Task>(task).invoke_raw(ec)
         );
     }
+}
+
+/**
+ * @brief Executes a direct-output task against the provided execution context.
+ *
+ * Unlike `run_task(...)`, this overload is for tasks whose payload is written
+ * into a caller-provided output sink instead of returned through `invoke_raw(...)`.
+ * The caller owns the destination slot lifetime; this helper only enforces the
+ * direct-output success/non-success contract on top of that sink.
+ *
+ * @tparam Task Direct-output task type exposing `invoke_into(...)`.
+ * @tparam Ctx Borrowed execution-context schema.
+ * @tparam Prev Direct-parent slot view type.
+ * @param task Task object to execute.
+ * @param ec Borrowed execution context.
+ * @param out Output sink receiving the task payload on success.
+ * @return The resulting `step_result` from the direct-output execution.
+ */
+template <typename Task, typename Ctx, typename Prev = no_prev>
+    requires executable_direct_output_task<Task, Ctx, Prev>
+[[nodiscard]] constexpr step_result run_task_into(
+    Task&& task,
+    exec_context<Ctx, Prev>& ec,
+    result_out<detail::declared_task_output_t<Task>> out)
+    noexcept(noexcept(std::forward<Task>(task).invoke_into(ec, out)))
+{
+    const auto step = std::forward<Task>(task).invoke_into(ec, out);
+
+    if (step.ok()) {
+        YORCH_ASSERT(out.has_value());
+    } else if (out.has_value()) {
+        out.destroy();
+    }
+
+    return step;
 }
 
 /**

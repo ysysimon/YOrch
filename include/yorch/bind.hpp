@@ -155,18 +155,6 @@ struct bound_output_task {
     std::tuple<Specs...> specs;
 
     template <typename Ctx, typename Prev>
-    constexpr step_result invoke_raw(exec_context<Ctx, Prev>& ec)
-        noexcept(noexcept(invoke_into(ec, result_out<T> {
-            std::declval<detail::typed_slot<T>&>()}))) {
-        detail::typed_slot<T> scratch;
-        auto out = result_out<T> {scratch};
-        const auto step = invoke_into(ec, out);
-        YORCH_ASSERT(!step.ok() || scratch.has_value());
-        scratch.destroy();
-        return step;
-    }
-
-    template <typename Ctx, typename Prev>
     constexpr step_result invoke_into(exec_context<Ctx, Prev>& ec, result_out<T> out)
         noexcept(noexcept(call_impl_into(ec, out, std::index_sequence_for<Specs...> {}))) {
         using call_result_t =
@@ -247,8 +235,7 @@ constexpr auto bind(F&& f, Specs&&... specs) { // NOLINT(readability-identifier-
  * @tparam Specs Input spec types.
  * @param f Callable to execute later.
  * @param specs Input binding specs, one for each non-output parameter.
- * @return A `bound_output_task` that can be executed through `invoke_into(...)`
- * or, via fallback, `invoke_raw(...)`.
+ * @return A `bound_output_task` that can be executed through `invoke_into(...)`.
  */
 template <typename T, typename F, typename... Specs>
 constexpr auto bind_into(F&& f, Specs&&... specs) {
