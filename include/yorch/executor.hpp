@@ -377,7 +377,7 @@ template <typename R>
  * for the remainder of the node's subtree traversal.
  *
  * @tparam I Node index whose slot should receive the payload.
- * @tparam Slots Concrete `plan_slots<...>`-like storage type.
+ * @tparam Slots Concrete `plan_exec_slots<...>`-like storage type.
  * @tparam Raw Raw return object type produced by `invoke_raw(...)`.
  * @param slots Plan slot storage used by the current DFS execution.
  * @param raw Raw task return object to inspect and, when applicable, move from.
@@ -800,7 +800,7 @@ template <typename Plan>
              detail::plan_prev_source_valid_v<Plan> &&
              detail::plan_fanout_prev_valid_v<Plan>
 [[nodiscard]] constexpr step_result run_plan(Plan& plan) {
-    plan_slots<Plan> slots;
+    plan_exec_slots<Plan> slots;
     return detail::run_node<0>(plan, slots);
 }
 
@@ -819,7 +819,7 @@ template <typename Plan, typename Ctx>
              detail::plan_prev_source_valid_v<Plan> &&
              detail::plan_fanout_prev_valid_v<Plan>
 [[nodiscard]] constexpr step_result run_plan(Plan& plan, Ctx& ctx) {
-    plan_slots<Plan> slots;
+    plan_exec_slots<Plan> slots;
     return detail::run_node<0>(plan, slots, ctx);
 }
 

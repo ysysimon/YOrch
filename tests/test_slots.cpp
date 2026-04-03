@@ -75,6 +75,12 @@ concept can_emplace_slot =
         slots.template emplace<I>(std::forward<Args>(args)...);
     };
 
+template <typename Slots, std::size_t I>
+concept can_query_slot_value =
+    requires(const Slots& slots) {
+        { slots.template has_value<I>() } -> std::convertible_to<bool>;
+    };
+
 constexpr auto make_mixed_plan() {
     auto tree = yorch::task_tree.root(yorch::bind([]() noexcept -> int {
             return 1;
@@ -104,6 +110,14 @@ constexpr auto make_move_only_plan() {
 auto make_probe_plan(lifetime_tracker& tracker) {
     auto tree = yorch::task_tree.root(yorch::bind([&tracker]() noexcept -> lifetime_probe {
         return lifetime_probe {tracker, 7};
+    }));
+
+    return yorch::compile_plan(tree);
+}
+
+auto make_probe_result_plan(lifetime_tracker& tracker) {
+    auto tree = yorch::task_tree.root(yorch::bind([&tracker]() noexcept -> yorch::task_result<lifetime_probe> {
+        return yorch::task_result<lifetime_probe>::success(lifetime_probe {tracker, 7});
     }));
 
     return yorch::compile_plan(tree);
@@ -159,27 +173,28 @@ TEST(SlotsTest, PlanSlotsExposePerNodeOutputTypesAndLifecycle) {
     static_assert(slots_t::template slot_policy<4> == yorch::detail::slot_policy::must_payload);
     static_assert(can_emplace_slot<slots_t, 0, int>);
     static_assert(can_emplace_slot<slots_t, 1, std::string>);
+    static_assert(!can_query_slot_value<slots_t, 0>);
+    static_assert(can_query_slot_value<slots_t, 1>);
+    static_assert(can_query_slot_value<slots_t, 2>);
+    static_assert(can_query_slot_value<slots_t, 3>);
+    static_assert(!can_query_slot_value<slots_t, 4>);
     static_assert(!can_emplace_slot<slots_t, 2>);
     static_assert(!can_emplace_slot<slots_t, 3>);
     static_assert(can_emplace_slot<slots_t, 4, bool>);
 
     slots_t slots;
 
-    EXPECT_FALSE(slots.has_value<0>());
     EXPECT_FALSE(slots.has_value<1>());
     EXPECT_FALSE(slots.has_value<2>());
     EXPECT_FALSE(slots.has_value<3>());
-    EXPECT_FALSE(slots.has_value<4>());
 
     auto& root = slots.emplace<0>(41);
     auto& child = slots.emplace<1>(std::string("leaf"));
     auto& tail = slots.emplace<4>(true);
 
-    EXPECT_TRUE(slots.has_value<0>());
     EXPECT_TRUE(slots.has_value<1>());
     EXPECT_FALSE(slots.has_value<2>());
     EXPECT_FALSE(slots.has_value<3>());
-    EXPECT_TRUE(slots.has_value<4>());
     EXPECT_EQ(&slots.get<0>(), &root);
     EXPECT_EQ(&slots.get<1>(), &child);
     EXPECT_EQ(&slots.get<4>(), &tail);
@@ -192,8 +207,6 @@ TEST(SlotsTest, PlanSlotsExposePerNodeOutputTypesAndLifecycle) {
 
     EXPECT_FALSE(slots.has_value<1>());
     EXPECT_FALSE(slots.has_value<2>());
-    EXPECT_TRUE(slots.has_value<0>());
-    EXPECT_TRUE(slots.has_value<4>());
 }
 
 TEST(SlotsTest, PlanSlotsPrevViewForReturnsDirectParentViewOrNoPrev) {
@@ -244,7 +257,6 @@ TEST(SlotsTest, PlanSlotsSupportMoveOnlyPayloads) {
 
     static_assert(std::is_same_v<decltype(stored), move_only&>);
 
-    EXPECT_TRUE(slots.has_value<0>());
     EXPECT_EQ(stored.value, 9);
     EXPECT_EQ(slots.get<0>().value, 9);
 }
@@ -253,7 +265,7 @@ TEST(SlotsTest, PlanSlotsDestructorDestroysLivePayloads) {
     lifetime_tracker tracker;
 
     {
-        auto plan = make_probe_plan(tracker);
+        auto plan = make_probe_result_plan(tracker);
         yorch::plan_slots<decltype(plan)> slots;
 
         slots.emplace<0>(lifetime_probe {tracker, 5});
