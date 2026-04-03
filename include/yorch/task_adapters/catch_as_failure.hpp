@@ -46,7 +46,7 @@ struct catch_failure_task
         static_assert(detail::declared_task_raw_result_matches_invoke_raw_v<Task, Ctx, Prev>,
                       "Wrapped task raw_result_type must match invoke_raw(exec_context<...>&) return type");
         static_assert(detail::default_catch_supported_v<raw_result_t>,
-                      "Default catch_as_failure only supports tasks returning void, step_result, or task_result<void>");
+                      "Default catch_as_failure only supports tasks returning void or step_result");
 
         try {
             if constexpr (std::is_void_v<raw_result_t>) {

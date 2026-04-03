@@ -20,13 +20,10 @@ namespace yorch::detail {
 template <typename R>
 [[nodiscard]] constexpr auto default_catch_failure_result() noexcept {
     static_assert(default_catch_supported_v<R>,
-                  "Default catch_as_failure only supports void, step_result, and task_result<void>");
+                  "Default catch_as_failure only supports void and step_result");
 
-    if constexpr (std::is_void_v<R> || std::is_same_v<R, step_result>) {
-        return step_result::failure();
-    } else {
-        return task_result<void>::failure();
-    }
+    static_assert(std::is_void_v<R> || std::is_same_v<R, step_result>);
+    return step_result::failure();
 }
 
 /**
@@ -56,24 +53,17 @@ template <typename R, typename Policy>
  * @brief Produces the success-path raw result for a wrapped `void` task when a
  * custom fallback policy is installed.
  *
- * The policy decides whether exception paths produce `step_result` or
- * `task_result<void>`, so successful `void` execution must mirror that same raw
- * result shape.
+ * The policy decides the exception-path `step_result`, so successful `void`
+ * execution must mirror that same raw result shape.
  *
  * @tparam PolicyResult Raw result type returned by the policy.
  * @return Success result matching `PolicyResult`.
  */
 template <typename PolicyResult>
 [[nodiscard]] constexpr auto void_task_success_result() noexcept {
-    static_assert(std::is_same_v<PolicyResult, step_result> ||
-                  std::is_same_v<PolicyResult, task_result<void>>,
-                  "Void task catch policy must return step_result or task_result<void>");
-
-    if constexpr (std::is_same_v<PolicyResult, step_result>) {
-        return step_result::success();
-    } else {
-        return task_result<void>::success();
-    }
+    static_assert(std::is_same_v<PolicyResult, step_result>,
+                  "Void task catch policy must return step_result");
+    return step_result::success();
 }
 
 template <typename R>
@@ -106,8 +96,6 @@ template <typename Raw>
 
     if constexpr (std::is_same_v<raw_t, step_result>) {
         return step_result::failure();
-    } else if constexpr (std::is_same_v<raw_t, task_result<void>>) {
-        return task_result<void>::failure();
     } else {
         return raw_t::failure();
     }

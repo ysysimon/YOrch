@@ -54,8 +54,7 @@ inline constexpr bool has_declared_task_output_v =
 template <typename R>
 inline constexpr bool default_catch_supported_v =
     std::is_void_v<R> ||
-    std::is_same_v<R, step_result> ||
-    std::is_same_v<R, task_result<void>>;
+    std::is_same_v<R, step_result>;
 
 /**
  * @brief Extracts the result type returned by an exception fallback policy.
@@ -188,7 +187,7 @@ struct forwarded_task_output_base<
  * Compatibility means:
  * - the policy is invocable as `policy(const std::exception_ptr&)` and is
  *   `noexcept`
- * - for `void` tasks, the policy returns `step_result` or `task_result<void>`
+ * - for `void` tasks, the policy returns `step_result`
  * - for non-void tasks, the policy result is convertible to the raw result
  *
  * @tparam R Raw task return type.
@@ -207,8 +206,7 @@ struct catch_policy_supported<
     : std::bool_constant<
           std::is_nothrow_invocable_v<Policy&, const std::exception_ptr&> &&
           (std::is_void_v<R>
-               ? (std::is_same_v<policy_result_t<Policy>, step_result> ||
-                  std::is_same_v<policy_result_t<Policy>, task_result<void>>)
+               ? std::is_same_v<policy_result_t<Policy>, step_result>
                : (!std::is_reference_v<R> &&
                   std::is_convertible_v<policy_result_t<Policy>, R>))> {};
 

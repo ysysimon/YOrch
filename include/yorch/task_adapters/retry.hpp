@@ -57,9 +57,9 @@ struct retry_forever_policy {
  *
  * This wrapper leaves the task's raw result type unchanged. Only results that
  * can explicitly carry `step_status::retry` participate in the retry loop:
- * `step_result`, `task_result<void>`, and `task_result<T>`. Plain value and
- * `void` results are forwarded unchanged because they cannot request retry
- * through the current status model.
+ * `step_result` and `task_result<T>`. Plain value and `void` results are
+ * forwarded unchanged because they cannot request retry through the current
+ * status model.
  *
  * @tparam Task Stored task type.
  * @tparam Policy Stored retry policy type.

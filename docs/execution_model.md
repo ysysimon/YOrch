@@ -113,7 +113,7 @@ auto task = yorch::bind(
 当前支持的返回值规整规则如下：
 
 - `step_result`：原样返回
-- `task_result<T>` / `task_result<void>`：返回其中的 `step`
+- `task_result<T>`：返回其中的 `step`
 - `void`：视为 `success`
 - 普通返回值 `T`，包括 `bool`：当前统一视为 `success`
 

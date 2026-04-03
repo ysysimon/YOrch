@@ -92,11 +92,6 @@ struct task_output_type_impl<step_result> {
     using type = void;
 };
 
-template <>
-struct task_output_type_impl<task_result<void>> {
-    using type = void;
-};
-
 template <typename T>
 struct task_output_type_impl<task_result<T>> {
     using type = T;
@@ -142,8 +137,7 @@ private:
 public:
     static constexpr slot_policy value =
         std::is_void_v<raw_t> ||
-                std::is_same_v<raw_t, step_result> ||
-                std::is_same_v<raw_t, task_result<void>>
+                std::is_same_v<raw_t, step_result>
             ? slot_policy::none
         : is_task_result_v<raw_t>
             ? slot_policy::maybe_payload

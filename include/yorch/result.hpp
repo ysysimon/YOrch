@@ -89,12 +89,15 @@ struct step_result {
  * All non-success states are value-less and therefore do not require
  * constructing a placeholder `T`.
  *
- * @tparam T Value type produced by the task. Must not be a reference type.
+ * @tparam T Value type produced by the task. Must not be `void` or a reference
+ * type.
  */
 template <typename T>
 struct task_result {
     static_assert(!std::is_reference_v<T>,
                   "yorch::task_result<T> does not support reference types");
+    static_assert(!std::is_void_v<T>,
+                  "yorch::task_result<void> is not supported; use `void` for success-only tasks or `yorch::step_result` for status-only tasks");
 
 public:
     /// Value type carried by this result wrapper.
@@ -169,49 +172,11 @@ private:
 };
 
 /**
- * @brief Specialization for tasks that do not produce an extra value.
- *
- * Use `task_result<void>` when a task only needs to report execution status.
- */
-template <>
-struct task_result<void> {
-    /// Value type carried by this result wrapper.
-    using value_type = void;
-
-    /** @brief Execution status of the current step. */
-    step_result step {};
-
-    [[nodiscard]] static constexpr task_result success() noexcept {
-        return {step_result::success()};
-    }
-
-    [[nodiscard]] static constexpr task_result failure() noexcept {
-        return {step_result::failure()};
-    }
-
-    [[nodiscard]] static constexpr task_result retry() noexcept {
-        return {step_result::retry()};
-    }
-
-    [[nodiscard]] static constexpr task_result abort_branch() noexcept {
-        return {step_result::abort_branch()};
-    }
-
-    [[nodiscard]] static constexpr task_result abort_execution() noexcept {
-        return {step_result::abort_execution()};
-    }
-
-    [[nodiscard]] static constexpr task_result from_step(step_result s) noexcept {
-        return {s};
-    }
-};
-
-/**
  * @brief Type trait that detects `task_result<T>`.
  *
- * The primary template reports `false`. The specialization for
- * `task_result<T>` reports `true`, and the variable template strips cv-ref
- * qualifiers before checking.
+ * The primary template reports `false`. The specialization for supported
+ * `task_result<T>` payload carriers reports `true`, and the variable template
+ * strips cv-ref qualifiers before checking.
  *
  * @tparam T Candidate type to inspect.
  */
@@ -226,7 +191,7 @@ inline constexpr bool is_task_result_v =
     is_task_result<std::remove_cvref_t<T>>::value;
 
 /**
- * @brief Extracts the payload type from `task_result<T>`.
+ * @brief Extracts the payload type from a supported `task_result<T>`.
  *
  * @tparam T `task_result` wrapper type.
  */

@@ -298,17 +298,17 @@ TEST(TaskAdaptersTest, WithRetryForeverPolicyKeepsRetryingUntilSuccess) {
 
     auto task = yorch::with_retry(
         yorch::bind(
-            [&]() noexcept -> yorch::task_result<void> {
+            [&]() noexcept -> yorch::step_result {
                 ++attempts;
                 return attempts < 4
-                    ? yorch::task_result<void>::retry()
-                    : yorch::task_result<void>::success();
+                    ? yorch::step_result::retry()
+                    : yorch::step_result::success();
             }),
         yorch::retry_forever_policy {});
 
     const auto raw = task.invoke_raw(exec);
 
-    EXPECT_EQ(raw.step.status, yorch::step_status::success);
+    EXPECT_EQ(raw.status, yorch::step_status::success);
     EXPECT_EQ(attempts, 4);
 }
 

@@ -218,12 +218,12 @@ TEST(ExecutorTest, RunTaskNormalizesTaskResultPayloadCarrier) {
     EXPECT_EQ(ctx.get<int>(), 7);
 }
 
-TEST(ExecutorTest, RunTaskNormalizesVoidTaskResult) {
+TEST(ExecutorTest, RunTaskNormalizesStatusOnlyStepResult) {
     yorch::exec_context<void> exec;
 
     auto task = yorch::bind(
-        []() noexcept -> yorch::task_result<void> {
-            return yorch::task_result<void>::abort_branch();
+        []() noexcept -> yorch::step_result {
+            return yorch::step_result::abort_branch();
         });
 
     const auto result = yorch::run_task(task, exec);

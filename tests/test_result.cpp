@@ -69,13 +69,8 @@ TEST(ResultTest, TaskResultSupportsMoveOnlyPayloads) {
     EXPECT_EQ(moved.value().value, 9);
 }
 
-TEST(ResultTest, TaskResultTraitsExposePayloadType) {
+TEST(ResultTest, TaskResultTraitsExposePayloadTypeForPayloadTasks) {
     static_assert(yorch::is_task_result_v<yorch::task_result<int>>);
-    static_assert(yorch::is_task_result_v<const yorch::task_result<void>&>);
     static_assert(!yorch::is_task_result_v<yorch::step_result>);
     static_assert(std::is_same_v<yorch::task_result_value_t<yorch::task_result<int>>, int>);
-    static_assert(std::is_same_v<yorch::task_result_value_t<const yorch::task_result<void>&>, void>);
-
-    constexpr yorch::task_result<void> task {};
-    EXPECT_TRUE(task.step.ok());
 }

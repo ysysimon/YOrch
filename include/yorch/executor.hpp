@@ -366,8 +366,7 @@ template <typename R>
  *
  * The storage rules are:
  *
- * - `void`, `step_result`, and `task_result<void>` do not carry a payload, so
- *   no slot write happens
+ * - `void` and `step_result` do not carry a payload, so no slot write happens
  * - plain `T` writes that returned value directly into slot `I`
  * - `task_result<T>` writes only the wrapped `value` and only when the step
  *   status is `success`; non-success `task_result<T>` values leave the slot
@@ -387,8 +386,7 @@ template <std::size_t I, typename Slots, typename Raw>
     using raw_t = std::remove_cvref_t<Raw>;
 
     if constexpr (std::is_void_v<raw_t> ||
-                  std::is_same_v<raw_t, step_result> ||
-                  std::is_same_v<raw_t, task_result<void>>) {
+                  std::is_same_v<raw_t, step_result>) {
         static_cast<void>(slots);
         static_cast<void>(raw);
         return false;
