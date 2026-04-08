@@ -1,6 +1,6 @@
 #pragma once
 
-#include "detail/traits.hpp"
+#include "../detail/task_adapters/traits.hpp"
 #include "../slots.hpp"
 
 namespace yorch {

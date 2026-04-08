@@ -1,7 +1,7 @@
 #pragma once
 
 #include "concepts.hpp" // IWYU pragma: keep
-#include "detail/result_helpers.hpp"
+#include "../detail/task_adapters/result_helpers.hpp"
 
 namespace yorch {
 
