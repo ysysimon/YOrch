@@ -14,6 +14,12 @@ YOrch/
       bind.hpp
       executor.hpp
       task_tree.hpp
+      detail/
+        task_tree/
+          meta.hpp
+          concepts.hpp
+      task_tree/
+        builder.hpp
       plan.hpp
       plan/
         traits.hpp
