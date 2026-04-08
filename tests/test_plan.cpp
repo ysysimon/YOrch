@@ -77,11 +77,11 @@ TEST(PlanTest, CompilePlanRecoversParentChildStructureAndOutputMetadata) {
     static_assert(std::is_same_v<plan_t::template output_type<2>, void>);
     static_assert(std::is_same_v<plan_t::template output_type<3>, void>);
     static_assert(std::is_same_v<plan_t::template output_type<4>, bool>);
-    static_assert(plan_t::template slot_policy_for<0> == yorch::detail::slot_policy::must_payload);
-    static_assert(plan_t::template slot_policy_for<1> == yorch::detail::slot_policy::maybe_payload);
-    static_assert(plan_t::template slot_policy_for<2> == yorch::detail::slot_policy::none);
-    static_assert(plan_t::template slot_policy_for<3> == yorch::detail::slot_policy::none);
-    static_assert(plan_t::template slot_policy_for<4> == yorch::detail::slot_policy::must_payload);
+    static_assert(plan_t::template slot_logical_policy_for<0> == yorch::detail::slot_logical_policy::must_payload);
+    static_assert(plan_t::template slot_logical_policy_for<1> == yorch::detail::slot_logical_policy::maybe_payload);
+    static_assert(plan_t::template slot_logical_policy_for<2> == yorch::detail::slot_logical_policy::none);
+    static_assert(plan_t::template slot_logical_policy_for<3> == yorch::detail::slot_logical_policy::none);
+    static_assert(plan_t::template slot_logical_policy_for<4> == yorch::detail::slot_logical_policy::must_payload);
 
     EXPECT_EQ(plan_t::parent_indices[0], plan_t::no_parent);
     EXPECT_EQ(plan_t::parent_indices[1], 0);
@@ -170,8 +170,8 @@ TEST(PlanTest, CompilePlanPrefersDeclaredTaskOutputTypeForDirectOutputTasks) {
     static_assert(std::is_same_v<plan_t::template raw_result_type<1>, yorch::step_result>);
     static_assert(std::is_same_v<plan_t::template output_type<0>, std::string>);
     static_assert(std::is_same_v<plan_t::template output_type<1>, int>);
-    static_assert(plan_t::template slot_policy_for<0> == yorch::detail::slot_policy::maybe_payload);
-    static_assert(plan_t::template slot_policy_for<1> == yorch::detail::slot_policy::maybe_payload);
+    static_assert(plan_t::template slot_logical_policy_for<0> == yorch::detail::slot_logical_policy::maybe_payload);
+    static_assert(plan_t::template slot_logical_policy_for<1> == yorch::detail::slot_logical_policy::maybe_payload);
 
     SUCCEED();
 }
@@ -207,13 +207,13 @@ TEST(PlanTest, CompilePlanInfersSlotPoliciesFromFinalTaskProtocols) {
     auto plan = yorch::compile_plan(tree);
     using plan_t = decltype(plan);
 
-    static_assert(plan_t::template slot_policy_for<0> == yorch::detail::slot_policy::must_payload);
-    static_assert(plan_t::template slot_policy_for<1> == yorch::detail::slot_policy::maybe_payload);
-    static_assert(plan_t::template slot_policy_for<2> == yorch::detail::slot_policy::none);
-    static_assert(plan_t::template slot_policy_for<3> == yorch::detail::slot_policy::none);
-    static_assert(plan_t::template slot_policy_for<4> == yorch::detail::slot_policy::maybe_payload);
-    static_assert(plan_t::template slot_policy_for<5> == yorch::detail::slot_policy::must_payload);
-    static_assert(plan_t::template slot_policy_for<6> == yorch::detail::slot_policy::must_payload);
+    static_assert(plan_t::template slot_logical_policy_for<0> == yorch::detail::slot_logical_policy::must_payload);
+    static_assert(plan_t::template slot_logical_policy_for<1> == yorch::detail::slot_logical_policy::maybe_payload);
+    static_assert(plan_t::template slot_logical_policy_for<2> == yorch::detail::slot_logical_policy::none);
+    static_assert(plan_t::template slot_logical_policy_for<3> == yorch::detail::slot_logical_policy::none);
+    static_assert(plan_t::template slot_logical_policy_for<4> == yorch::detail::slot_logical_policy::maybe_payload);
+    static_assert(plan_t::template slot_logical_policy_for<5> == yorch::detail::slot_logical_policy::must_payload);
+    static_assert(plan_t::template slot_logical_policy_for<6> == yorch::detail::slot_logical_policy::must_payload);
 
     SUCCEED();
 }

@@ -7,7 +7,7 @@
 #include <utility>
 
 #include "result.hpp"
-#include "detail/slot_policy.hpp"
+#include "detail/slots/policy.hpp"
 #include "task_tree.hpp"
 
 namespace yorch::detail {
@@ -130,31 +130,41 @@ template <typename Task>
 using task_output_for_t = typename task_output_for<Task>::type;
 
 template <typename Task, typename = void>
-struct task_slot_policy {
+struct task_slot_logical_policy {
 private:
     using raw_t = task_raw_result_t<Task>;
 
 public:
-    static constexpr slot_policy value =
+    static constexpr slot_logical_policy value =
         std::is_void_v<raw_t> ||
                 std::is_same_v<raw_t, step_result>
-            ? slot_policy::none
+            ? slot_logical_policy::none
         : is_task_result_v<raw_t>
-            ? slot_policy::maybe_payload
-            : slot_policy::must_payload;
+            ? slot_logical_policy::maybe_payload
+            : slot_logical_policy::must_payload;
 };
 
+/**
+ * @brief Direct-output tasks always use maybe-payload slot semantics.
+ *
+ * A declared `output_type` means the payload is written through a sink such as
+ * `result_out<T>` instead of being returned as the raw result value. Receiving
+ * that sink does not prove the task will call `emplace(...)`; the task may
+ * return `failure`, `retry`, `abort_execution`, or simply return success without
+ * materializing a value. The slot therefore needs an engagement bit even though
+ * the declared payload type itself is non-void.
+ */
 template <typename Task>
-struct task_slot_policy<
+struct task_slot_logical_policy<
     Task,
     std::void_t<typename plan_declared_task_output<Task>::type>
 > {
-    static constexpr slot_policy value = slot_policy::maybe_payload;
+    static constexpr slot_logical_policy value = slot_logical_policy::maybe_payload;
 };
 
 template <typename Task>
-inline constexpr slot_policy task_slot_policy_v =
-    task_slot_policy<Task>::value;
+inline constexpr slot_logical_policy task_slot_logical_policy_v =
+    task_slot_logical_policy<Task>::value;
 
 template <typename... Nodes>
 [[nodiscard]] consteval auto make_level_array() {
@@ -354,8 +364,8 @@ struct compiled_plan {
     using output_type = detail::task_output_for_t<task_type<I>>;
 
     template <std::size_t I>
-    static constexpr detail::slot_policy slot_policy_for =
-        detail::task_slot_policy_v<task_type<I>>;
+    static constexpr detail::slot_logical_policy slot_logical_policy_for =
+        detail::task_slot_logical_policy_v<task_type<I>>;
 
     template <std::size_t I>
     static constexpr std::size_t level = levels[I];

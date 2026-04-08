@@ -793,12 +793,13 @@ template <typename Task, typename Ctx, typename Prev = no_prev>
  * @param plan Mutable plan whose stored task objects are executed in DFS order.
  * @return Final `step_result` of the whole execution.
  */
-template <typename Plan>
-    requires (Plan::node_count > 0) &&
+template <typename LayoutPolicy = slot_layout_one_to_one_policy, typename Plan>
+    requires detail::slot_layout_policy<LayoutPolicy> &&
+             (Plan::node_count > 0) &&
              detail::plan_prev_source_valid_v<Plan> &&
              detail::plan_fanout_prev_valid_v<Plan>
 [[nodiscard]] constexpr step_result run_plan(Plan& plan) {
-    plan_exec_slots<Plan> slots;
+    plan_exec_slots<Plan, LayoutPolicy> slots;
     return detail::run_node<0>(plan, slots);
 }
 
@@ -812,12 +813,13 @@ template <typename Plan>
  * @param ctx Borrowed context exposed to each node through `from_ctx(...)`.
  * @return Final `step_result` of the whole execution.
  */
-template <typename Plan, typename Ctx>
-    requires (Plan::node_count > 0) &&
+template <typename LayoutPolicy = slot_layout_one_to_one_policy, typename Plan, typename Ctx>
+    requires detail::slot_layout_policy<LayoutPolicy> &&
+             (Plan::node_count > 0) &&
              detail::plan_prev_source_valid_v<Plan> &&
              detail::plan_fanout_prev_valid_v<Plan>
 [[nodiscard]] constexpr step_result run_plan(Plan& plan, Ctx& ctx) {
-    plan_exec_slots<Plan> slots;
+    plan_exec_slots<Plan, LayoutPolicy> slots;
     return detail::run_node<0>(plan, slots, ctx);
 }
 

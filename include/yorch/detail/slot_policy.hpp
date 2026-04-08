@@ -1,11 +1,5 @@
 #pragma once
 
-namespace yorch::detail {
-
-enum class slot_policy : unsigned char {
-    none,
-    maybe_payload,
-    must_payload,
-};
-
-} // namespace yorch::detail
+// IWYU pragma: begin_exports
+#include "slots/policy.hpp"
+// IWYU pragma: end_exports

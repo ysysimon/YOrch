@@ -3,7 +3,7 @@
 #include <utility>
 
 #include "assert.hpp"
-#include "detail/maybe_storage.hpp"
+#include "detail/storage/maybe_storage.hpp"
 
 namespace yorch {
 

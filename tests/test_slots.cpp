@@ -6,7 +6,9 @@
 
 #include <gtest/gtest.h>
 
+#include <cstdint>
 #include <string>
+#include <tuple>
 #include <type_traits>
 #include <utility>
 
@@ -166,11 +168,21 @@ TEST(SlotsTest, PlanSlotsExposePerNodeOutputTypesAndLifecycle) {
     static_assert(std::is_same_v<typename slots_t::template output_type<2>, void>);
     static_assert(std::is_same_v<typename slots_t::template output_type<3>, void>);
     static_assert(std::is_same_v<typename slots_t::template output_type<4>, bool>);
-    static_assert(slots_t::template slot_policy<0> == yorch::detail::slot_policy::must_payload);
-    static_assert(slots_t::template slot_policy<1> == yorch::detail::slot_policy::maybe_payload);
-    static_assert(slots_t::template slot_policy<2> == yorch::detail::slot_policy::none);
-    static_assert(slots_t::template slot_policy<3> == yorch::detail::slot_policy::none);
-    static_assert(slots_t::template slot_policy<4> == yorch::detail::slot_policy::must_payload);
+    static_assert(slots_t::template slot_logical_policy<0> == yorch::detail::slot_logical_policy::must_payload);
+    static_assert(slots_t::template slot_logical_policy<1> == yorch::detail::slot_logical_policy::maybe_payload);
+    static_assert(slots_t::template slot_logical_policy<2> == yorch::detail::slot_logical_policy::none);
+    static_assert(slots_t::template slot_logical_policy<3> == yorch::detail::slot_logical_policy::none);
+    static_assert(slots_t::template slot_logical_policy<4> == yorch::detail::slot_logical_policy::must_payload);
+    static_assert(std::tuple_size_v<typename slots_t::tuple_type> == slots_t::physical_slot_count);
+    static_assert(std::is_same_v<
+                  std::tuple_element_t<0, typename slots_t::tuple_type>,
+                  yorch::detail::typed_slot<int, yorch::detail::slot_logical_policy::must_payload>>);
+    static_assert(std::is_same_v<
+                  std::tuple_element_t<1, typename slots_t::tuple_type>,
+                  yorch::detail::typed_slot<std::string, yorch::detail::slot_logical_policy::maybe_payload>>);
+    static_assert(std::is_same_v<
+                  std::tuple_element_t<2, typename slots_t::tuple_type>,
+                  yorch::detail::typed_slot<bool, yorch::detail::slot_logical_policy::must_payload>>);
     static_assert(can_emplace_slot<slots_t, 0, int>);
     static_assert(can_emplace_slot<slots_t, 1, std::string>);
     static_assert(!can_query_slot_value<slots_t, 0>);
@@ -207,6 +219,47 @@ TEST(SlotsTest, PlanSlotsExposePerNodeOutputTypesAndLifecycle) {
 
     EXPECT_FALSE(slots.has_value<1>());
     EXPECT_FALSE(slots.has_value<2>());
+}
+
+TEST(SlotsTest, CompactLayoutInfersPhysicalSlotReuseAndPolicies) {
+    auto plan = make_mixed_plan();
+    using plan_t = decltype(plan);
+    using compact_slots_t =
+        yorch::plan_exec_slots<plan_t, yorch::slot_layout_serial_dfs_compact_policy>;
+
+    static_assert(compact_slots_t::physical_slot_count == 2);
+    static_assert(compact_slots_t::template physical_slot_index<0> == 0);
+    static_assert(compact_slots_t::template physical_slot_index<1> == 1);
+    static_assert(compact_slots_t::template physical_slot_index<4> == 1);
+    static_assert(compact_slots_t::template slot_physical_policy<0> ==
+                  yorch::detail::slot_physical_policy::must_payload);
+    static_assert(compact_slots_t::template slot_physical_policy<1> ==
+                  yorch::detail::slot_physical_policy::maybe_payload);
+    static_assert(std::is_same_v<
+                  std::tuple_element_t<0, typename compact_slots_t::tuple_type>,
+                  yorch::detail::erased_slot<
+                      sizeof(int),
+                      alignof(int),
+                      yorch::detail::slot_physical_policy::must_payload>>);
+
+    compact_slots_t slots;
+    auto& root = slots.emplace<0>(41);
+    auto& child = slots.emplace<1>(std::string("leaf"));
+
+    EXPECT_EQ(&slots.get<0>(), &root);
+    EXPECT_EQ(&slots.get<1>(), &child);
+    EXPECT_EQ(slots.get<0>(), 41);
+    EXPECT_EQ(slots.get<1>(), "leaf");
+
+    const auto reused_slot_addr =
+        reinterpret_cast<std::uintptr_t>(static_cast<const void*>(&slots.get<1>()));
+
+    slots.destroy<1>();
+    auto& tail = slots.emplace<4>(true);
+
+    EXPECT_EQ(reused_slot_addr,
+              reinterpret_cast<std::uintptr_t>(static_cast<const void*>(&tail)));
+    EXPECT_TRUE(slots.get<4>());
 }
 
 TEST(SlotsTest, PlanSlotsPrevViewForReturnsDirectParentViewOrNoPrev) {
@@ -262,21 +315,38 @@ TEST(SlotsTest, PlanSlotsSupportMoveOnlyPayloads) {
 }
 
 TEST(SlotsTest, PlanSlotsDestructorDestroysLivePayloads) {
-    lifetime_tracker tracker;
+    lifetime_tracker must_tracker;
 
     {
-        auto plan = make_probe_result_plan(tracker);
+        auto plan = make_probe_plan(must_tracker);
         yorch::plan_slots<decltype(plan)> slots;
 
-        slots.emplace<0>(lifetime_probe {tracker, 5});
+        slots.emplace<0>(lifetime_probe {must_tracker, 5});
 
-        EXPECT_TRUE(slots.has_value<0>());
-        EXPECT_EQ(tracker.live_count, 1);
+        EXPECT_EQ(must_tracker.live_count, 1);
         // The temporary passed into emplace(...) has already been destroyed;
         // the slot-owned payload remains live here.
-        EXPECT_EQ(tracker.destroyed_count, 1);
+        EXPECT_EQ(must_tracker.destroyed_count, 1);
     }
 
-    EXPECT_EQ(tracker.live_count, 0);
-    EXPECT_EQ(tracker.destroyed_count, 2);
+    EXPECT_EQ(must_tracker.live_count, 0);
+    EXPECT_EQ(must_tracker.destroyed_count, 2);
+
+    lifetime_tracker maybe_tracker;
+
+    {
+        auto plan = make_probe_result_plan(maybe_tracker);
+        yorch::plan_slots<decltype(plan)> slots;
+
+        slots.emplace<0>(lifetime_probe {maybe_tracker, 5});
+
+        EXPECT_TRUE(slots.has_value<0>());
+        EXPECT_EQ(maybe_tracker.live_count, 1);
+        // The temporary passed into emplace(...) has already been destroyed;
+        // the slot-owned payload remains live here.
+        EXPECT_EQ(maybe_tracker.destroyed_count, 1);
+    }
+
+    EXPECT_EQ(maybe_tracker.live_count, 0);
+    EXPECT_EQ(maybe_tracker.destroyed_count, 2);
 }

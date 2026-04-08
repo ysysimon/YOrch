@@ -92,10 +92,22 @@ concept can_run_plan =
         yorch::run_plan(plan);
     };
 
+template <typename LayoutPolicy, typename Plan>
+concept can_run_plan_with_layout =
+    requires(Plan& plan) {
+        yorch::run_plan<LayoutPolicy>(plan);
+    };
+
 template <typename Plan, typename Ctx>
 concept can_run_plan_with_ctx =
     requires(Plan& plan, Ctx& ctx) {
         yorch::run_plan(plan, ctx);
+    };
+
+template <typename LayoutPolicy, typename Plan, typename Ctx>
+concept can_run_plan_with_ctx_and_layout =
+    requires(Plan& plan, Ctx& ctx) {
+        yorch::run_plan<LayoutPolicy>(plan, ctx);
     };
 
 }  // namespace
@@ -280,6 +292,27 @@ TEST(ExecutorTest, RunPlanExecutesRootOnlyPlan) {
     EXPECT_EQ(executions, 1);
 }
 
+TEST(ExecutorTest, RunPlanSupportsExplicitLayoutPolicies) {
+    auto tree = yorch::task_tree.root(yorch::bind([]() noexcept -> int {
+        return 7;
+    }));
+    auto plan = yorch::compile_plan(tree);
+
+    static_assert(can_run_plan<decltype(plan)>);
+    static_assert(can_run_plan_with_layout<yorch::slot_layout_one_to_one_policy, decltype(plan)>);
+    static_assert(can_run_plan_with_layout<yorch::slot_layout_serial_dfs_compact_policy, decltype(plan)>);
+
+    const auto default_result = yorch::run_plan(plan);
+    const auto explicit_result =
+        yorch::run_plan<yorch::slot_layout_one_to_one_policy>(plan);
+    const auto compact_result =
+        yorch::run_plan<yorch::slot_layout_serial_dfs_compact_policy>(plan);
+
+    EXPECT_TRUE(default_result.ok());
+    EXPECT_TRUE(explicit_result.ok());
+    EXPECT_TRUE(compact_result.ok());
+}
+
 TEST(ExecutorTest, RunPlanPropagatesDirectParentPayloadsOnly) {
     int seen_root = 0;
     std::string seen_child;
@@ -307,6 +340,51 @@ TEST(ExecutorTest, RunPlanPropagatesDirectParentPayloadsOnly) {
     EXPECT_TRUE(result.ok());
     EXPECT_EQ(seen_root, 5);
     EXPECT_EQ(seen_child, "15");
+}
+
+TEST(ExecutorTest, RunPlanCompactLayoutMatchesOneToOneBehavior) {
+    std::vector<std::string> default_trace;
+    std::vector<std::string> compact_trace;
+    int default_leaf = 0;
+    int compact_leaf = 0;
+
+    auto make_tree = [](std::vector<std::string>& trace, int& leaf) {
+        return yorch::task_tree.root(yorch::bind([&]() noexcept -> int {
+                trace.emplace_back("A");
+                return 5;
+            }))
+            .node<1>(yorch::bind(
+                [&](const int& value) noexcept -> yorch::task_result<std::string> {
+                    trace.emplace_back("B");
+                    return yorch::task_result<std::string>::success(std::to_string(value * 2));
+                },
+                yorch::from_prev<int>()))
+                .node<2>(yorch::bind(
+                    [&](const std::string& text) noexcept -> yorch::step_result {
+                        trace.emplace_back("C");
+                        leaf = static_cast<int>(text.size());
+                        return yorch::step_result::success();
+                    },
+                    yorch::from_prev<std::string>()))
+            .node<1>(yorch::bind(
+                [&](const int& value) noexcept -> yorch::step_result {
+                    trace.emplace_back("D");
+                    leaf += value;
+                    return yorch::step_result::success();
+                },
+                yorch::from_prev<int>()));
+    };
+
+    auto default_plan = yorch::compile_plan(make_tree(default_trace, default_leaf));
+    auto compact_plan = yorch::compile_plan(make_tree(compact_trace, compact_leaf));
+
+    const auto default_result = yorch::run_plan(default_plan);
+    const auto compact_result =
+        yorch::run_plan<yorch::slot_layout_serial_dfs_compact_policy>(compact_plan);
+
+    EXPECT_EQ(default_result.status, compact_result.status);
+    EXPECT_EQ(default_trace, compact_trace);
+    EXPECT_EQ(default_leaf, compact_leaf);
 }
 
 TEST(ExecutorTest, RunPlanTraversesDepthFirstAndKeepsParentPayloadAlive) {
@@ -451,6 +529,39 @@ TEST(ExecutorTest, RunPlanPropagatesRetryAndCleansUpLiveSlots) {
     EXPECT_EQ(tracker.destroyed_count, 2);
 }
 
+TEST(ExecutorTest, RunPlanCompactLayoutPropagatesRetryAndCleansUpLiveSlots) {
+    lifetime_tracker tracker;
+    std::vector<std::string> trace;
+
+    auto tree = yorch::task_tree.root(yorch::bind([&]() noexcept -> lifetime_probe {
+            trace.emplace_back("A");
+            return lifetime_probe {tracker, 9};
+        }))
+        .node<1>(yorch::bind(
+            [&](const lifetime_probe& value) noexcept -> yorch::step_result {
+                trace.emplace_back("B");
+                EXPECT_EQ(value.value, 9);
+                EXPECT_EQ(tracker.live_count, 1);
+                return yorch::step_result::retry();
+            },
+            yorch::from_prev<lifetime_probe>()))
+        .node<1>(yorch::bind(
+            [&](const lifetime_probe&) noexcept -> yorch::step_result {
+                trace.emplace_back("C");
+                return yorch::step_result::success();
+            },
+            yorch::from_prev<lifetime_probe>()));
+
+    auto plan = yorch::compile_plan(tree);
+    const auto result =
+        yorch::run_plan<yorch::slot_layout_serial_dfs_compact_policy>(plan);
+
+    EXPECT_EQ(result.status, yorch::step_status::retry);
+    EXPECT_EQ(trace, (std::vector<std::string> {"A", "B"}));
+    EXPECT_EQ(tracker.live_count, 0);
+    EXPECT_EQ(tracker.destroyed_count, 2);
+}
+
 TEST(ExecutorTest, RunPlanSupportsContextAndTaskAdapters) {
     yorch::context<int> ctx(4);
 
@@ -492,6 +603,28 @@ TEST(ExecutorTest, RunPlanSupportsDirectOutputTasksAndImmovablePayloads) {
 
     EXPECT_TRUE(result.ok());
     EXPECT_EQ(seen_value, 11);
+}
+
+TEST(ExecutorTest, RunPlanSupportsCompactLayoutForDirectOutputTasksAndImmovablePayloads) {
+    int seen_value = 0;
+
+    auto tree = yorch::task_tree.root(yorch::bind_into<immovable_payload>(
+            [](yorch::result_out<immovable_payload> out) noexcept -> yorch::step_result {
+                return out.success(19);
+            }))
+        .node<1>(yorch::bind(
+            [&](const immovable_payload& value) noexcept -> yorch::step_result {
+                seen_value = value.value;
+                return yorch::step_result::success();
+            },
+            yorch::from_prev<immovable_payload>()));
+
+    auto plan = yorch::compile_plan(tree);
+    const auto result =
+        yorch::run_plan<yorch::slot_layout_serial_dfs_compact_policy>(plan);
+
+    EXPECT_TRUE(result.ok());
+    EXPECT_EQ(seen_value, 19);
 }
 
 TEST(ExecutorTest, RunPlanDestroysDirectOutputPayloadWhenNodeReturnsFailureAfterEmplace) {
