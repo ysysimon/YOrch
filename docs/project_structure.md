@@ -15,6 +15,10 @@ YOrch/
       executor.hpp
       task_tree.hpp
       plan.hpp
+      plan/
+        traits.hpp
+        layout.hpp
+        compiled_plan.hpp
   src/
     yorch.cpp
   tests/
