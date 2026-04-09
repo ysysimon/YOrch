@@ -29,6 +29,13 @@ target_link_libraries(app PRIVATE yorch::yorch)
 target_link_libraries(app PRIVATE yorch::yorch_header_only)
 ```
 
+`run_plan(...)` 当前支持两个独立的 policy 维度：
+
+- `LayoutPolicy`：控制 payload slot 的布局方式
+- `ExecPolicy`：控制 plan 的遍历执行方式
+
+默认执行策略是 recursive serial DFS；如需在深树场景下避免依赖函数调用栈深度，可显式选择 `exec_serial_dfs_explicit_heap_stack_policy`。
+
 ## Current Modules
 
 - `result.hpp`

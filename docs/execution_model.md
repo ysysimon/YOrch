@@ -2,6 +2,13 @@
 
 本文说明当前 `YOrch` 中 `context`、`spec`、`resolve`、`bind`、`executor` 之间的关系，以及一次任务执行的大致流程。
 
+当前 `run_plan(...)` 有两个彼此独立的 policy 维度：
+
+- `LayoutPolicy`：决定 plan payload slot 的布局方式
+- `ExecPolicy`：决定 plan 的遍历执行方式
+
+默认执行策略是 `exec_serial_dfs_recursive_policy`。当树较深、希望避免依赖函数调用栈深度时，可以显式选择 `exec_serial_dfs_explicit_heap_stack_policy`，让 DFS traversal frame 保存在 heap 上。
+
 ## Core Roles
 
 ### `context<Ts...>`
