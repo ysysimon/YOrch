@@ -61,7 +61,7 @@ using incompatible_exception_policy_t = decltype([]() noexcept -> yorch::task_re
 });
 
 using direct_output_task_t = decltype(yorch::bind_into<int>(
-    [](yorch::result_out<int> out) noexcept -> yorch::step_result {
+    [](yorch::direct_out<int> out) noexcept -> yorch::step_result {
         return out.success(1);
     }));
 
@@ -317,12 +317,12 @@ TEST(TaskAdaptersTest, CatchAsFailureSupportsDirectOutputTasks) {
 
     auto task = yorch::catch_as_failure(
         yorch::bind_into<int>(
-            [](yorch::result_out<int>) -> yorch::step_result {
+            [](yorch::direct_out<int>) -> yorch::step_result {
                 throw std::runtime_error("boom");
             }));
 
     yorch::detail::typed_slot<int> slot;
-    const auto step = task.invoke_into(exec, yorch::result_out<int> {slot});
+    const auto step = task.invoke_into(exec, yorch::direct_out<int> {slot});
 
     EXPECT_EQ(step.status, yorch::step_status::failure);
     EXPECT_FALSE(slot.has_value());
@@ -334,7 +334,7 @@ TEST(TaskAdaptersTest, WithRetrySupportsDirectOutputTasks) {
 
     auto task = yorch::with_retry(
         yorch::bind_into<int>(
-            [&](yorch::result_out<int> out) noexcept -> yorch::step_result {
+            [&](yorch::direct_out<int> out) noexcept -> yorch::step_result {
                 ++attempts;
 
                 if (attempts < 3) {
@@ -347,7 +347,7 @@ TEST(TaskAdaptersTest, WithRetrySupportsDirectOutputTasks) {
         yorch::retry_fixed_policy {4});
 
     yorch::detail::typed_slot<int> slot;
-    const auto step = task.invoke_into(exec, yorch::result_out<int> {slot});
+    const auto step = task.invoke_into(exec, yorch::direct_out<int> {slot});
 
     EXPECT_TRUE(step.ok());
     EXPECT_TRUE(slot.has_value());

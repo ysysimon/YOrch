@@ -31,7 +31,7 @@ concept direct_output_task =
         {
             task.invoke_into(
                 ec,
-                result_out<detail::declared_task_output_t<Task>> {
+                direct_out<detail::declared_task_output_t<Task>> {
                     std::declval<detail::typed_slot<detail::declared_task_output_t<Task>>&>()})
         } -> std::same_as<step_result>;
     };

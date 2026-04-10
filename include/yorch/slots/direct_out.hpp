@@ -12,7 +12,7 @@ namespace yorch {
 /**
  * @brief Output sink passed to direct-output tasks.
  *
- * `result_out<T>` models maybe-payload semantics: receiving the sink does not
+ * `direct_out<T>` models maybe-payload semantics: receiving the sink does not
  * guarantee that the task will call `emplace(...)` before returning. The sink
  * always materializes an owned payload in the destination slot; it does not
  * model alias/reference output semantics. This is why it only accepts
@@ -25,20 +25,20 @@ namespace yorch {
  * `out.success(std::move(value))` so the ownership transfer stays explicit.
  */
 template <typename T>
-struct result_out {
+struct direct_out {
     static_assert(!std::is_reference_v<T>,
-                  "yorch::result_out<T> does not support reference types; direct-output payloads must be owned values");
+                  "yorch::direct_out<T> does not support reference types; direct-output payloads must be owned values");
     static_assert(!std::is_void_v<T>,
-                  "yorch::result_out<T> requires a non-void payload type");
+                  "yorch::direct_out<T> requires a non-void payload type");
 
-    constexpr explicit result_out(
+    constexpr explicit direct_out(
         detail::typed_slot<T, detail::slot_logical_policy::maybe_payload>& slot) noexcept
         : slot_(slot) {}
 
     /**
      * @brief Binds the sink to an already-created typed slot view.
      */
-    constexpr explicit result_out(detail::slot_view<T> slot) noexcept
+    constexpr explicit direct_out(detail::slot_view<T> slot) noexcept
         : slot_(slot) {}
 
     template <typename... Args>

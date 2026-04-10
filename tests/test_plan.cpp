@@ -154,11 +154,11 @@ TEST(PlanTest, CompilePlanRejectsTasksWithoutDeclaredRawResultType) {
 
 TEST(PlanTest, CompilePlanPrefersDeclaredTaskOutputTypeForDirectOutputTasks) {
     auto tree = yorch::task_tree.root(yorch::bind_into<std::string>(
-            [](yorch::result_out<std::string> out) noexcept -> yorch::step_result {
+            [](yorch::direct_out<std::string> out) noexcept -> yorch::step_result {
                 return out.success("root");
             }))
         .node<1>(yorch::bind_into<int>(
-            [](const std::string& value, yorch::result_out<int> out) noexcept -> yorch::step_result {
+            [](const std::string& value, yorch::direct_out<int> out) noexcept -> yorch::step_result {
                 return out.success(static_cast<int>(value.size()));
             },
             yorch::borrow_prev<std::string>()));
@@ -188,7 +188,7 @@ TEST(PlanTest, CompilePlanInfersSlotPoliciesFromFinalTaskProtocols) {
         }))
         .node<1>(yorch::bind([]() noexcept {}))
         .node<1>(yorch::bind_into<int>(
-            [](yorch::result_out<int> out) noexcept -> yorch::step_result {
+            [](yorch::direct_out<int> out) noexcept -> yorch::step_result {
                 return out.success(3);
             }))
         .node<1>(yorch::with_retry(

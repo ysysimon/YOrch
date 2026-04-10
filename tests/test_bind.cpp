@@ -205,7 +205,7 @@ TEST(BindTest, BoundOutputTaskResolvesSpecsAndWritesToOutputSink) {
     yorch::exec_context<decltype(ctx)> exec {ctx};
 
     auto task = yorch::bind_into<std::string>(
-        [](int& value, yorch::result_out<std::string> out) noexcept -> yorch::step_result {
+        [](int& value, yorch::direct_out<std::string> out) noexcept -> yorch::step_result {
             value += 1;
             return out.success(std::to_string(value * 2));
         },
@@ -216,7 +216,7 @@ TEST(BindTest, BoundOutputTaskResolvesSpecsAndWritesToOutputSink) {
                   std::tuple<yorch::from_ctx_t<int>>>);
 
     yorch::detail::typed_slot<std::string> slot;
-    const auto result = task.invoke_into(exec, yorch::result_out<std::string> {slot});
+    const auto result = task.invoke_into(exec, yorch::direct_out<std::string> {slot});
 
     EXPECT_TRUE(result.ok());
     EXPECT_TRUE(slot.has_value());
@@ -230,14 +230,14 @@ TEST(BindTest, BoundOutputTaskCanConsumeParentPayloadAndForwardItToOutput) {
         yorch::prev_slot(parent_value)};
 
     auto task = yorch::bind_into<std::string>(
-        [](std::string&& value, yorch::result_out<std::string> out) noexcept -> yorch::step_result {
+        [](std::string&& value, yorch::direct_out<std::string> out) noexcept -> yorch::step_result {
             value += "-child";
             return out.success(std::move(value));
         },
         yorch::consume_prev<std::string>());
 
     yorch::detail::typed_slot<std::string> slot;
-    const auto result = task.invoke_into(exec, yorch::result_out<std::string> {slot});
+    const auto result = task.invoke_into(exec, yorch::direct_out<std::string> {slot});
 
     EXPECT_TRUE(result.ok());
     EXPECT_TRUE(slot.has_value());
@@ -248,12 +248,12 @@ TEST(BindTest, BoundOutputTaskNormalizesVoidCallableReturnToSuccess) {
     yorch::exec_context<void> exec;
 
     auto task = yorch::bind_into<int>(
-        [](yorch::result_out<int> out) noexcept {
+        [](yorch::direct_out<int> out) noexcept {
             out.emplace(9);
         });
 
     yorch::detail::typed_slot<int> slot;
-    const auto result = task.invoke_into(exec, yorch::result_out<int> {slot});
+    const auto result = task.invoke_into(exec, yorch::direct_out<int> {slot});
 
     EXPECT_TRUE(result.ok());
     EXPECT_TRUE(slot.has_value());

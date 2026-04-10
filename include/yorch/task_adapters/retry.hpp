@@ -138,7 +138,7 @@ struct retry_task
         requires direct_output_task<U, Ctx, Prev> && retry_policy<Policy>
     constexpr step_result invoke_into(
         exec_context<Ctx, Prev>& ec,
-        result_out<detail::declared_task_output_t<U>> out) noexcept(
+        direct_out<detail::declared_task_output_t<U>> out) noexcept(
             noexcept(task.invoke_into(ec, out)) &&
             noexcept(policy.should_retry(std::size_t {})) &&
             noexcept(detail::handle_retry_exhausted(

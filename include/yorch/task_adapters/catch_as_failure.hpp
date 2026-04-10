@@ -64,7 +64,7 @@ struct catch_failure_task
         requires direct_output_task<U, Ctx, Prev>
     constexpr step_result invoke_into(
         exec_context<Ctx, Prev>& ec,
-        result_out<detail::declared_task_output_t<U>> out) noexcept {
+        direct_out<detail::declared_task_output_t<U>> out) noexcept {
         try {
             return task.invoke_into(ec, out);
         } catch (...) {
@@ -141,7 +141,7 @@ struct catch_failure_with_policy_task
         requires catch_policy_compatible_direct_output_task<U, Policy, Ctx, Prev>
     constexpr step_result invoke_into(
         exec_context<Ctx, Prev>& ec,
-        result_out<detail::declared_task_output_t<U>> out) noexcept {
+        direct_out<detail::declared_task_output_t<U>> out) noexcept {
         try {
             return task.invoke_into(ec, out);
         } catch (...) {

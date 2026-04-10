@@ -151,7 +151,7 @@ using retrying_task_t = decltype(yorch::with_retry(
 static_assert(yorch::executable_task<retrying_task_t&, void>);
 
 using direct_output_task_t = decltype(yorch::bind_into<int>(
-    [](yorch::result_out<int> out) noexcept -> yorch::step_result {
+    [](yorch::direct_out<int> out) noexcept -> yorch::step_result {
         return out.success(1);
     }));
 static_assert(!yorch::executable_task<direct_output_task_t&, void>);
@@ -272,14 +272,14 @@ TEST(ExecutorTest, RunTaskIntoSupportsDirectOutputTasks) {
     yorch::exec_context<decltype(ctx)> exec {ctx};
 
     auto task = yorch::bind_into<int>(
-        [](int& value, yorch::result_out<int> out) noexcept -> yorch::step_result {
+        [](int& value, yorch::direct_out<int> out) noexcept -> yorch::step_result {
             value += 3;
             return out.success(value * 2);
         },
         yorch::from_ctx<int>());
 
     yorch::detail::typed_slot<int> slot;
-    const auto result = yorch::run_task_into(task, exec, yorch::result_out<int> {slot});
+    const auto result = yorch::run_task_into(task, exec, yorch::direct_out<int> {slot});
 
     EXPECT_TRUE(result.ok());
     EXPECT_EQ(ctx.get<int>(), 7);
@@ -901,7 +901,7 @@ TEST(ExecutorTest, RunPlanSupportsDirectOutputTasksAndImmovablePayloads) {
     int seen_value = 0;
 
     auto tree = yorch::task_tree.root(yorch::bind_into<immovable_payload>(
-            [](yorch::result_out<immovable_payload> out) noexcept -> yorch::step_result {
+            [](yorch::direct_out<immovable_payload> out) noexcept -> yorch::step_result {
                 return out.success(11);
             }))
         .node<1>(yorch::bind(
@@ -922,7 +922,7 @@ TEST(ExecutorTest, RunPlanSupportsCompactLayoutForDirectOutputTasksAndImmovableP
     int seen_value = 0;
 
     auto tree = yorch::task_tree.root(yorch::bind_into<immovable_payload>(
-            [](yorch::result_out<immovable_payload> out) noexcept -> yorch::step_result {
+            [](yorch::direct_out<immovable_payload> out) noexcept -> yorch::step_result {
                 return out.success(19);
             }))
         .node<1>(yorch::bind(
@@ -944,7 +944,7 @@ TEST(ExecutorTest, RunPlanExplicitHeapStackSupportsCompactLayoutForDirectOutputT
     int seen_value = 0;
 
     auto tree = yorch::task_tree.root(yorch::bind_into<immovable_payload>(
-            [](yorch::result_out<immovable_payload> out) noexcept -> yorch::step_result {
+            [](yorch::direct_out<immovable_payload> out) noexcept -> yorch::step_result {
                 return out.success(23);
             }))
         .node<1>(yorch::bind(
@@ -968,7 +968,7 @@ TEST(ExecutorTest, RunPlanDestroysDirectOutputPayloadWhenNodeReturnsFailureAfter
     lifetime_tracker tracker;
 
     auto tree = yorch::task_tree.root(yorch::bind_into<lifetime_probe>(
-            [&](yorch::result_out<lifetime_probe> out) noexcept -> yorch::step_result {
+            [&](yorch::direct_out<lifetime_probe> out) noexcept -> yorch::step_result {
                 out.emplace(tracker, 13);
                 return yorch::step_result::failure();
             }))
@@ -992,7 +992,7 @@ TEST(ExecutorTest, RunPlanSupportsRetryAdapterOnDirectOutputTasks) {
 
     auto tree = yorch::task_tree.root(yorch::with_retry(
             yorch::bind_into<int>(
-                [&](yorch::result_out<int> out) noexcept -> yorch::step_result {
+                [&](yorch::direct_out<int> out) noexcept -> yorch::step_result {
                     ++attempts;
 
                     if (attempts < 3) {
@@ -1023,7 +1023,7 @@ TEST(ExecutorTest, RunPlanSupportsCatchAdapterOnDirectOutputTasks) {
 
     auto tree = yorch::task_tree.root(yorch::catch_as_failure(
             yorch::bind_into<int>(
-                [&](yorch::result_out<int>) -> yorch::step_result {
+                [&](yorch::direct_out<int>) -> yorch::step_result {
                     trace.emplace_back("root");
                     throw std::runtime_error("boom");
                 })))

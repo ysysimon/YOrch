@@ -143,7 +143,7 @@ public:
  * @brief Direct-output tasks always use maybe-payload slot semantics.
  *
  * A declared `output_type` means the payload is written through a sink such as
- * `result_out<T>` instead of being returned as the raw result value. Receiving
+ * `direct_out<T>` instead of being returned as the raw result value. Receiving
  * that sink does not prove the task will call `emplace(...)`; the task may
  * return `failure`, `retry`, `abort_execution`, or simply return success without
  * materializing a value. The slot therefore needs an engagement bit even though

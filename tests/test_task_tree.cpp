@@ -39,7 +39,7 @@ template <typename TaskTree>
 concept can_append_root_bind_into =
     requires(TaskTree&& task_tree) {
         std::forward<TaskTree>(task_tree).template root_bind_into<int>(
-            [](yorch::result_out<int>) noexcept {});
+            [](yorch::direct_out<int>) noexcept {});
     };
 
 template <typename TaskTree>
@@ -53,14 +53,14 @@ template <typename TaskTree>
 concept can_append_root_bind_into_with_wrong_output =
     requires(TaskTree&& task_tree) {
         std::forward<TaskTree>(task_tree).template root_bind_into<int>(
-            [](yorch::result_out<std::string>) noexcept {});
+            [](yorch::direct_out<std::string>) noexcept {});
     };
 
 template <typename TaskTree, std::size_t Level>
 concept can_append_node_bind_into =
     requires(TaskTree&& task_tree) {
         std::forward<TaskTree>(task_tree).template node_bind_into<Level, int>(
-            [](yorch::result_out<int>) noexcept {});
+            [](yorch::direct_out<int>) noexcept {});
     };
 
 } // namespace
@@ -106,7 +106,7 @@ TEST(TaskTreeTest, RootBuilderPreservesMoveOnlyTaskStorageAcrossRvalueChaining) 
 TEST(TaskTreeTest, RootBindIntoPreservesMoveOnlyTaskStorageAcrossRvalueChaining) {
     auto s = yorch::task_tree.root_bind_into<int>(
             [](const std::unique_ptr<int>& value,
-               yorch::result_out<int> out) noexcept -> yorch::step_result {
+               yorch::direct_out<int> out) noexcept -> yorch::step_result {
                 return out.success(value ? *value : -1);
             },
             yorch::value(std::make_unique<int>(7)))
@@ -127,14 +127,14 @@ TEST(TaskTreeTest, RootBuilderRejectsInvalidLevelTransitions) {
     using depth_one_task_tree_t =
         decltype(yorch::task_tree.root(make_noop_task()).node<1>(make_noop_task()));
     using root_bind_into_task_tree_t =
-        decltype(yorch::task_tree.root_bind_into<int>([](yorch::result_out<int>) noexcept {}));
+        decltype(yorch::task_tree.root_bind_into<int>([](yorch::direct_out<int>) noexcept {}));
 
     static_assert(can_append_root<decltype(yorch::task_tree)>,
                   "empty task_tree should allow appending a root node");
     static_assert(can_append_root_bind_into<decltype(yorch::task_tree)>,
                   "empty task_tree should allow root_bind_into(...) sugar");
     static_assert(!can_append_root_bind_into_without_output<decltype(yorch::task_tree)>,
-                  "root_bind_into(...) should reject callables without a trailing result_out<T>");
+                  "root_bind_into(...) should reject callables without a trailing direct_out<T>");
     static_assert(!can_append_root_bind_into_with_wrong_output<decltype(yorch::task_tree)>,
                   "root_bind_into(...) should reject callables whose trailing output type does not match T");
     static_assert(!can_append_root<root_task_tree_t&>,
@@ -200,12 +200,12 @@ TEST(TaskTreeTest, RootBindIntoAndNodeBindIntoBuildRunnablePlan) {
 
     auto tree = yorch::task_tree
         .root_bind_into<std::string>(
-            [](yorch::result_out<std::string> out) noexcept -> yorch::step_result {
+            [](yorch::direct_out<std::string> out) noexcept -> yorch::step_result {
                 return out.success("7");
             })
         .node_bind_into<1, int>(
             [&](const std::string& value,
-                yorch::result_out<int> out) noexcept -> yorch::step_result {
+                yorch::direct_out<int> out) noexcept -> yorch::step_result {
                 seen_root = std::stoi(value);
                 return out.success(seen_root * 2);
             },
@@ -238,7 +238,7 @@ TEST(TaskTreeTest, RootCatchAsFailureWrapsBoundTaskWithDefaultPolicy) {
 
 TEST(TaskTreeTest, RootCatchAsFailureIntoWrapsDirectOutputTaskWithDefaultPolicy) {
     auto tree = yorch::task_tree.root_catch_as_failure_into<int>(
-        [](yorch::result_out<int>) -> yorch::step_result {
+        [](yorch::direct_out<int>) -> yorch::step_result {
             throw std::runtime_error("boom");
         });
     auto plan = yorch::compile_plan(tree);
@@ -279,7 +279,7 @@ TEST(TaskTreeTest, NodeCatchAsFailureIntoWrapsDirectOutputTaskWithCustomPolicy) 
             [](std::exception_ptr) noexcept -> yorch::step_result {
                 return yorch::step_result::abort_branch();
             },
-            [](const int&, yorch::result_out<std::string>) -> yorch::step_result {
+            [](const int&, yorch::direct_out<std::string>) -> yorch::step_result {
                 throw std::runtime_error("boom");
             },
             yorch::borrow_prev<int>());
@@ -291,7 +291,7 @@ TEST(TaskTreeTest, NodeCatchAsFailureIntoWrapsDirectOutputTaskWithCustomPolicy) 
 
     const auto step = tree.template entry<1>().task.invoke_into(
         exec,
-        yorch::result_out<std::string> {slot});
+        yorch::direct_out<std::string> {slot});
 
     EXPECT_EQ(step.status, yorch::step_status::abort_branch);
     EXPECT_FALSE(slot.has_value());
@@ -323,7 +323,7 @@ TEST(TaskTreeTest, RootWithRetryIntoWrapsDirectOutputTask) {
     auto tree = yorch::task_tree
         .root_with_retry_into<int>(
             yorch::retry_fixed_policy {3},
-            [&](yorch::result_out<int> out) noexcept -> yorch::step_result {
+            [&](yorch::direct_out<int> out) noexcept -> yorch::step_result {
                 ++attempts;
 
                 if (attempts < 3) {
@@ -382,7 +382,7 @@ TEST(TaskTreeTest, NodeWithRetryIntoWrapsDirectOutputTask) {
         })
         .node_with_retry_into<1, std::string>(
             yorch::retry_fixed_policy {3},
-            [&](const int& value, yorch::result_out<std::string> out) noexcept -> yorch::step_result {
+            [&](const int& value, yorch::direct_out<std::string> out) noexcept -> yorch::step_result {
                 ++attempts;
 
                 if (attempts < value) {

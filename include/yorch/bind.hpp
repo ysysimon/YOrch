@@ -139,7 +139,7 @@ private:
  * @brief Bound direct-output task that writes its payload into a provided slot.
  *
  * This form keeps parameter resolution identical to `bound_task`, but the
- * stored callable receives a trailing `result_out<T>` sink instead of
+ * stored callable receives a trailing `direct_out<T>` sink instead of
  * returning the payload through its function result.
  *
  * @tparam F Stored callable type.
@@ -155,7 +155,7 @@ struct bound_output_task {
     std::tuple<Specs...> specs;
 
     template <typename Ctx, typename Prev>
-    constexpr step_result invoke_into(exec_context<Ctx, Prev>& ec, result_out<T> out)
+    constexpr step_result invoke_into(exec_context<Ctx, Prev>& ec, direct_out<T> out)
         noexcept(noexcept(call_impl_into(ec, out, std::index_sequence_for<Specs...> {}))) {
         using call_result_t =
             decltype(call_impl_into(ec, out, std::index_sequence_for<Specs...> {}));
@@ -174,7 +174,7 @@ private:
     template <typename Ctx, typename Prev, std::size_t... I>
     constexpr decltype(auto) call_impl_into(
         exec_context<Ctx, Prev>& ec,
-        result_out<T> out,
+        direct_out<T> out,
         std::index_sequence<I...>)
         noexcept(noexcept(std::invoke(
             func,
@@ -227,7 +227,7 @@ constexpr auto bind(F&& f, Specs&&... specs) { // NOLINT(readability-identifier-
 /**
  * @brief Creates a direct-output task from a callable and matching input specs.
  *
- * The callable's last parameter must be a `result_out<T>`-compatible output
+ * The callable's last parameter must be a `direct_out<T>`-compatible output
  * sink. All earlier parameters are resolved exactly like `bind(...)`.
  *
  * @tparam T Payload type produced into the destination slot.
@@ -242,7 +242,7 @@ constexpr auto bind_into(F&& f, Specs&&... specs) {
     using fn_t = std::remove_cvref_t<F>;
 
     static_assert(detail::function_traits<fn_t>::arity > 0,
-                  "bind_into(...) requires a callable whose last parameter is yorch::result_out<T>");
+                  "bind_into(...) requires a callable whose last parameter is yorch::direct_out<T>");
     static_assert(
         sizeof...(Specs) + 1 == detail::function_traits<fn_t>::arity,
         "bind_into(...) requires exactly one spec per non-output function parameter");
@@ -250,8 +250,8 @@ constexpr auto bind_into(F&& f, Specs&&... specs) {
     using last_arg_t = detail::last_arg_t<fn_t>;
 
     static_assert(
-        std::is_same_v<std::remove_cvref_t<last_arg_t>, result_out<T>>,
-        "bind_into(...) callable must take yorch::result_out<T> as its last parameter");
+        std::is_same_v<std::remove_cvref_t<last_arg_t>, direct_out<T>>,
+        "bind_into(...) callable must take yorch::direct_out<T> as its last parameter");
 
     return bound_output_task<
         std::decay_t<F>,

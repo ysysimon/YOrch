@@ -5,7 +5,7 @@
 
 #include "../detail/executor/result.hpp"
 #include "../detail/task_adapters/traits.hpp"
-#include "../slots/result_out.hpp"
+#include "../slots/direct_out.hpp"
 #include "concepts.hpp" // IWYU pragma: keep
 
 namespace yorch {
@@ -73,7 +73,7 @@ template <typename Task, typename Ctx, typename Prev = no_prev>
 [[nodiscard]] constexpr step_result run_task_into(
     Task&& task,
     exec_context<Ctx, Prev>& ec,
-    result_out<detail::declared_task_output_t<Task>> out)
+    direct_out<detail::declared_task_output_t<Task>> out)
     noexcept(noexcept(std::forward<Task>(task).invoke_into(ec, out)))
 {
     const auto step = std::forward<Task>(task).invoke_into(ec, out);

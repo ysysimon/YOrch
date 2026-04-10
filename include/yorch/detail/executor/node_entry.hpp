@@ -87,7 +87,7 @@ template <std::size_t I, typename Plan, typename Slots, typename Ec>
             task_t&,
             typename exec_traits_t::ctx_type,
             typename exec_traits_t::prev_type>,
-        "Plan nodes executed through run_plan(...) must expose a noexcept invoke_raw(exec_context<...>&) or invoke_into(exec_context<...>&, result_out<...>) surface");
+        "Plan nodes executed through run_plan(...) must expose a noexcept invoke_raw(exec_context<...>&) or invoke_into(exec_context<...>&, direct_out<...>) surface");
 
     auto& task = plan.template entry<I>().task;
     node_enter_result result {};

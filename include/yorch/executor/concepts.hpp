@@ -5,7 +5,7 @@
 #include <utility>
 
 #include "../context.hpp"
-#include "../slots/result_out.hpp"
+#include "../slots/direct_out.hpp"
 #include "../task_adapters/concepts.hpp" // IWYU pragma: keep
 
 namespace yorch {
@@ -43,11 +43,11 @@ concept executable_direct_output_task =
         {
             std::forward<Task>(task).invoke_into(
                 ec,
-                result_out<detail::declared_task_output_t<Task>> {slot})
+                direct_out<detail::declared_task_output_t<Task>> {slot})
         } -> std::same_as<step_result>;
         requires noexcept(std::forward<Task>(task).invoke_into(
             ec,
-            result_out<detail::declared_task_output_t<Task>> {slot}));
+            direct_out<detail::declared_task_output_t<Task>> {slot}));
     };
 
 }  // namespace yorch

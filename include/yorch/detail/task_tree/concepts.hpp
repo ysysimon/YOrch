@@ -28,7 +28,7 @@ concept bind_into_signature_matches =
     function_traits<std::remove_cvref_t<F>>::arity == sizeof...(Specs) + 1 &&
     std::is_same_v<
         std::remove_cvref_t<last_arg_t<std::remove_cvref_t<F>>>,
-        result_out<T>>;
+        direct_out<T>>;
 
 template <typename Policy>
 concept catch_policy_like =

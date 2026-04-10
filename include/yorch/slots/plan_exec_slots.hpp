@@ -11,7 +11,7 @@
 #include "../context.hpp"
 #include "../detail/slots/layout.hpp"
 #include "policies.hpp"
-#include "result_out.hpp"
+#include "direct_out.hpp"
 
 namespace yorch {
 
@@ -119,8 +119,8 @@ struct plan_exec_slots_impl {
     template <std::size_t I>
         requires detail::payload_node<Plan, I>
               && (slot_logical_policy<I> == detail::slot_logical_policy::maybe_payload)
-    [[nodiscard]] constexpr auto out() & noexcept -> result_out<output_type<I>> {
-        return result_out<output_type<I>> {slot_view_for<I>()};
+    [[nodiscard]] constexpr auto out() & noexcept -> direct_out<output_type<I>> {
+        return direct_out<output_type<I>> {slot_view_for<I>()};
     }
 
     /**
@@ -322,8 +322,8 @@ struct plan_exec_slots_impl<Plan, slot_layout_one_to_one_policy> {
     template <std::size_t I>
         requires detail::payload_node<Plan, I>
               && (slot_logical_policy<I> == detail::slot_logical_policy::maybe_payload)
-    [[nodiscard]] constexpr auto out() & noexcept -> result_out<output_type<I>> {
-        return result_out<output_type<I>> {logical_slot<I>()};
+    [[nodiscard]] constexpr auto out() & noexcept -> direct_out<output_type<I>> {
+        return direct_out<output_type<I>> {logical_slot<I>()};
     }
 
     /**
