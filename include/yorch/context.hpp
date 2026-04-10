@@ -50,7 +50,7 @@ struct no_prev {
  * @brief Lightweight borrowed view over a direct parent output slot.
  *
  * The view carries exactly one payload object and exposes a type-based API so
- * `resolve_as(from_prev_t<...>, ...)` can stay structurally similar to
+ * `resolve_as(borrow_prev_t<...>, ...)` can stay structurally similar to
  * `from_ctx(...)`.
  *
  * @tparam T Stored payload type. Constness is preserved; references are not.
@@ -188,7 +188,7 @@ struct exec_context {
     // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
     Ctx& ctx;
 
-    /// Optional direct-parent payload view used by `from_prev(...)`.
+    /// Optional direct-parent payload view used by direct-parent access specs.
     Prev prev;
 
     [[nodiscard]] constexpr Prev& prev_view() & noexcept {
@@ -221,7 +221,7 @@ struct exec_context<void, no_prev> {
 
 template <typename Prev>
 struct exec_context<void, Prev> {
-    /// Optional direct-parent payload view used by `from_prev(...)`.
+    /// Optional direct-parent payload view used by direct-parent access specs.
     Prev prev;
 
     [[nodiscard]] constexpr Prev& prev_view() & noexcept {

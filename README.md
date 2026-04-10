@@ -75,8 +75,8 @@ inline auto make_demo_tree(int value) {
         .root(yorch::bind([value]() noexcept -> int {
             return value;
         }))
-        .node<1>(yorch::bind([](int) noexcept {},
-                             yorch::from_prev<int>()));
+        .node<1>(yorch::bind([](const int&) noexcept {},
+                             yorch::borrow_prev<int>()));
 }
 
 template <typename Tree>
@@ -100,6 +100,6 @@ runner r(std::move(tree));
 ## Roadmap
 
 1. `Phase 1`：补齐 `step_result`、`exec_context`、`value/from_ctx`、`bind`
-2. `Phase 2`：补齐 `task_result<T>`、`PrevStore`、`from_prev<T>`、链式结果传递
+2. `Phase 2`：补齐 `task_result<T>`、`PrevStore`、`borrow_prev<T>`、链式结果传递
 3. `Phase 3`：补齐 `schedule/chain/then/step` 的最小执行闭环
 4. `Phase 4`：补齐 `traits` 与自动参数/返回值推导

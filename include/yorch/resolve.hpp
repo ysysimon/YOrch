@@ -29,15 +29,21 @@ template <typename T>
 using from_ctx_source_t = typename from_ctx_t<T>::type;
 
 template <typename T>
-using from_prev_source_t = typename from_prev_t<T>::type;
+using borrow_prev_source_t = typename borrow_prev_t<T>::type;
+
+template <typename T>
+using borrow_prev_mut_source_t = typename borrow_prev_mut_t<T>::type;
+
+template <typename T>
+using consume_prev_source_t = typename consume_prev_t<T>::type;
 
 template <typename Ctx, typename T>
 inline constexpr bool ctx_get_nothrow_v =
     noexcept(std::declval<Ctx&>().template get<from_ctx_source_t<T>>());
 
-template <typename Prev, typename T>
-inline constexpr bool prev_get_nothrow_v =
-    noexcept(std::declval<Prev&>().template get<from_prev_source_t<T>>());
+template <typename Prev, typename Source>
+inline constexpr bool prev_get_source_nothrow_v =
+    noexcept(std::declval<Prev&>().template get<Source>());
 
 template <typename Arg, typename T, typename Ctx>
 inline constexpr bool resolve_from_ctx_nothrow_v =
@@ -45,9 +51,22 @@ inline constexpr bool resolve_from_ctx_nothrow_v =
     bind_from_lvalue_nothrow_v<Arg, from_ctx_source_t<T>>;
 
 template <typename Arg, typename T, typename Prev>
-inline constexpr bool resolve_from_prev_nothrow_v =
-    prev_get_nothrow_v<Prev, T> &&
-    bind_from_lvalue_nothrow_v<Arg, from_prev_source_t<T>>;
+inline constexpr bool resolve_borrow_prev_nothrow_v =
+    prev_get_source_nothrow_v<Prev, borrow_prev_source_t<T>>;
+
+template <typename Arg, typename T, typename Prev>
+inline constexpr bool resolve_borrow_prev_mut_nothrow_v =
+    prev_get_source_nothrow_v<Prev, borrow_prev_mut_source_t<T>>;
+
+template <typename Arg, typename T>
+inline constexpr bool consume_bind_nothrow_v =
+    std::is_same_v<Arg, std::remove_cvref_t<T>&&> ||
+    std::is_nothrow_constructible_v<std::remove_cvref_t<Arg>, std::remove_cvref_t<T>&&>;
+
+template <typename Arg, typename T, typename Prev>
+inline constexpr bool resolve_consume_prev_nothrow_v =
+    prev_get_source_nothrow_v<Prev, consume_prev_source_t<T>> &&
+    consume_bind_nothrow_v<Arg, consume_prev_source_t<T>>;
 
 template <typename Arg, typename T>
 inline constexpr bool resolve_value_nothrow_v =
@@ -173,12 +192,11 @@ constexpr decltype(auto) resolve_as(from_ctx_t<T>, exec_context<Ctx, Prev>& ec)
 }
 
 /**
- * @brief Resolves a `from_prev(...)` spec by fetching the direct parent output
- * payload from the current execution's parent slot view.
+ * @brief Resolves a `borrow_prev(...)` spec by fetching the direct parent
+ * output payload as a readonly borrow.
  *
- * The lookup type is normalized by `from_prev_t<T>::type`, then validated
- * against the direct parent slot carried by the execution context before the
- * retrieved object is passed to `bind_from_lvalue`.
+ * This access mode is intentionally strict: the target argument must be the
+ * exact type `const T&`.
  *
  * @tparam Arg Target function parameter type.
  * @tparam T Requested parent payload type encoded by the spec.
@@ -188,16 +206,73 @@ constexpr decltype(auto) resolve_as(from_ctx_t<T>, exec_context<Ctx, Prev>& ec)
  * @return A reference or value matching `Arg`.
  */
 template <typename Arg, typename T, typename Ctx, typename Prev>
-constexpr decltype(auto) resolve_as(from_prev_t<T>, exec_context<Ctx, Prev>& ec)
-    noexcept(detail::resolve_from_prev_nothrow_v<Arg, T, Prev>) {
-    using source_t = typename from_prev_t<T>::type;
+constexpr decltype(auto) resolve_as(borrow_prev_t<T>, exec_context<Ctx, Prev>& ec)
+    noexcept(detail::resolve_borrow_prev_nothrow_v<Arg, T, Prev>) {
+    using source_t = typename borrow_prev_t<T>::type;
     using prev_t = std::remove_cvref_t<decltype(ec.prev_view())>;
 
+    static_assert(std::is_same_v<Arg, const source_t&>,
+                  "borrow_prev<T>() only binds to const T&");
     static_assert(prev_t::template contains<source_t>(),
-                  "from_prev<T>() requires a direct parent slot carrying the requested type");
+                  "borrow_prev<T>() requires a direct parent slot carrying the requested type");
 
     auto& src = ec.prev_view().template get<source_t>();
-    return bind_from_lvalue<Arg>(src);
+    return static_cast<const source_t&>(src);
+}
+
+/**
+ * @brief Resolves a `borrow_prev_mut(...)` spec by fetching the direct parent
+ * output payload as an exclusive mutable borrow.
+ *
+ * This access mode is intentionally strict: the target argument must be the
+ * exact type `T&`.
+ */
+template <typename Arg, typename T, typename Ctx, typename Prev>
+constexpr decltype(auto) resolve_as(borrow_prev_mut_t<T>, exec_context<Ctx, Prev>& ec)
+    noexcept(detail::resolve_borrow_prev_mut_nothrow_v<Arg, T, Prev>) {
+    using source_t = typename borrow_prev_mut_t<T>::type;
+    using prev_t = std::remove_cvref_t<decltype(ec.prev_view())>;
+    using prev_ref_t = decltype(std::declval<Prev&>().template get<source_t>());
+
+    static_assert(std::is_same_v<Arg, source_t&>,
+                  "borrow_prev_mut<T>() only binds to T&");
+    static_assert(prev_t::template contains<source_t>(),
+                  "borrow_prev_mut<T>() requires a direct parent slot carrying the requested type");
+    static_assert(!std::is_const_v<std::remove_reference_t<prev_ref_t>>,
+                  "borrow_prev_mut<T>() requires a mutable direct parent payload source");
+
+    auto& src = ec.prev_view().template get<source_t>();
+    return static_cast<source_t&>(src);
+}
+
+/**
+ * @brief Resolves a `consume_prev(...)` spec by moving from the direct parent
+ * output payload exactly once.
+ *
+ * This access mode only supports owned-value or rvalue-reference targets:
+ * `T` and `T&&`.
+ */
+template <typename Arg, typename T, typename Ctx, typename Prev>
+constexpr decltype(auto) resolve_as(consume_prev_t<T>, exec_context<Ctx, Prev>& ec)
+    noexcept(detail::resolve_consume_prev_nothrow_v<Arg, T, Prev>) {
+    using source_t = typename consume_prev_t<T>::type;
+    using prev_t = std::remove_cvref_t<decltype(ec.prev_view())>;
+    using prev_ref_t = decltype(std::declval<Prev&>().template get<source_t>());
+
+    static_assert(std::is_same_v<Arg, source_t> || std::is_same_v<Arg, source_t&&>,
+                  "consume_prev<T>() only binds to T or T&&");
+    static_assert(prev_t::template contains<source_t>(),
+                  "consume_prev<T>() requires a direct parent slot carrying the requested type");
+    static_assert(!std::is_const_v<std::remove_reference_t<prev_ref_t>>,
+                  "consume_prev<T>() requires a mutable direct parent payload source");
+
+    auto& src = ec.prev_view().template get<source_t>();
+
+    if constexpr (std::is_same_v<Arg, source_t&&>) {
+        return static_cast<source_t&&>(src);
+    } else {
+        return static_cast<source_t>(std::move(src));
+    }
 }
 
 /**

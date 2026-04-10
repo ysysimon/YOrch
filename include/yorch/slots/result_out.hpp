@@ -13,13 +13,21 @@ namespace yorch {
  * @brief Output sink passed to direct-output tasks.
  *
  * `result_out<T>` models maybe-payload semantics: receiving the sink does not
- * guarantee that the task will call `emplace(...)` before returning. This is
- * why it only accepts maybe-capable storage and stores a `slot_view<T>` instead
- * of a plain slot reference; the same public sink can target a typed one-to-one
- * slot or an erased compact-layout slot.
+ * guarantee that the task will call `emplace(...)` before returning. The sink
+ * always materializes an owned payload in the destination slot; it does not
+ * model alias/reference output semantics. This is why it only accepts
+ * maybe-capable storage and stores a `slot_view<T>` instead of a plain slot
+ * reference; the same public sink can target a typed one-to-one slot or an
+ * erased compact-layout slot.
+ *
+ * If a task needs to mutate a direct-parent payload and then forward that same
+ * object into its own output slot, prefer `consume_prev<T>()` plus
+ * `out.success(std::move(value))` so the ownership transfer stays explicit.
  */
 template <typename T>
 struct result_out {
+    static_assert(!std::is_reference_v<T>,
+                  "yorch::result_out<T> does not support reference types; direct-output payloads must be owned values");
     static_assert(!std::is_void_v<T>,
                   "yorch::result_out<T> requires a non-void payload type");
 

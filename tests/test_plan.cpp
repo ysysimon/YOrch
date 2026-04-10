@@ -161,7 +161,7 @@ TEST(PlanTest, CompilePlanPrefersDeclaredTaskOutputTypeForDirectOutputTasks) {
             [](const std::string& value, yorch::result_out<int> out) noexcept -> yorch::step_result {
                 return out.success(static_cast<int>(value.size()));
             },
-            yorch::from_prev<std::string>()));
+            yorch::borrow_prev<std::string>()));
 
     auto plan = yorch::compile_plan(tree);
     using plan_t = decltype(plan);

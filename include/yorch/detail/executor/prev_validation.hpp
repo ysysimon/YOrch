@@ -13,193 +13,353 @@
 namespace yorch::detail {
 
 template <typename Spec>
-struct is_from_prev_spec : std::false_type {};
+struct is_borrow_prev_spec : std::false_type {};
 
 template <typename T>
-struct is_from_prev_spec<from_prev_t<T>> : std::true_type {};
+struct is_borrow_prev_spec<borrow_prev_t<T>> : std::true_type {};
 
 template <typename Spec>
-inline constexpr bool is_from_prev_spec_v =
-    is_from_prev_spec<std::remove_cvref_t<Spec>>::value;
+inline constexpr bool is_borrow_prev_spec_v =
+    is_borrow_prev_spec<std::remove_cvref_t<Spec>>::value;
 
-template <typename Arg>
-inline constexpr bool exact_const_lvalue_ref_v =
-    std::is_lvalue_reference_v<Arg> &&
-    std::is_const_v<std::remove_reference_t<Arg>>;
+template <typename Spec>
+struct is_borrow_prev_mut_spec : std::false_type {};
 
-/**
- * @brief Checks whether every `from_prev(...)` binding inside a `bound_task`
- * maps to an exact `const T&` callable parameter.
- *
- * This helper is used by the current fan-out validation path. When a parent
- * node has multiple direct children, those children may only read the parent
- * payload through `from_prev(...)`; they must not take a mutable reference,
- * take the value by copy, or request an rvalue-style consuming parameter.
- *
- * The check is performed position-by-position across the bound task's spec
- * tuple and callable signature:
- *
- * - if the `I`-th spec is not `from_prev(...)`, that parameter position is
- *   irrelevant to this validation and therefore accepted
- * - if the `I`-th spec is `from_prev(...)`, then the callable's `I`-th
- *   parameter type must be exactly `const T&`
- *
- * The final result is the logical AND of all parameter positions.
- *
- * @tparam F Callable type stored inside `bound_task`.
- * @tparam SpecsTuple Tuple type storing one bound spec per callable parameter.
- * @tparam I Compile-time parameter indices used to walk the callable/spec pair.
- * @param Unused compile-time index sequence selecting the parameter positions.
- * @return `true` when all `from_prev(...)` positions bind as exact
- * `const T&`; otherwise `false`.
- */
+template <typename T>
+struct is_borrow_prev_mut_spec<borrow_prev_mut_t<T>> : std::true_type {};
+
+template <typename Spec>
+inline constexpr bool is_borrow_prev_mut_spec_v =
+    is_borrow_prev_mut_spec<std::remove_cvref_t<Spec>>::value;
+
+template <typename Spec>
+struct is_consume_prev_spec : std::false_type {};
+
+template <typename T>
+struct is_consume_prev_spec<consume_prev_t<T>> : std::true_type {};
+
+template <typename Spec>
+inline constexpr bool is_consume_prev_spec_v =
+    is_consume_prev_spec<std::remove_cvref_t<Spec>>::value;
+
+template <typename Spec>
+inline constexpr bool is_prev_access_spec_v =
+    is_borrow_prev_spec_v<Spec> ||
+    is_borrow_prev_mut_spec_v<Spec> ||
+    is_consume_prev_spec_v<Spec>;
+
+template <typename Spec>
+inline constexpr bool is_exclusive_prev_access_spec_v =
+    is_borrow_prev_mut_spec_v<Spec> ||
+    is_consume_prev_spec_v<Spec>;
+
+template <typename Spec, typename Arg>
+struct prev_access_binding_valid : std::false_type {};
+
+template <typename T, typename Arg>
+struct prev_access_binding_valid<borrow_prev_t<T>, Arg>
+    : std::bool_constant<std::is_same_v<Arg, const typename borrow_prev_t<T>::type&>> {};
+
+template <typename T, typename Arg>
+struct prev_access_binding_valid<borrow_prev_mut_t<T>, Arg>
+    : std::bool_constant<std::is_same_v<Arg, typename borrow_prev_mut_t<T>::type&>> {};
+
+template <typename T, typename Arg>
+struct prev_access_binding_valid<consume_prev_t<T>, Arg>
+    : std::bool_constant<
+          std::is_same_v<Arg, typename consume_prev_t<T>::type> ||
+          std::is_same_v<Arg, typename consume_prev_t<T>::type&&>> {};
+
+template <typename Spec, typename Arg>
+inline constexpr bool prev_access_binding_valid_v =
+    prev_access_binding_valid<std::remove_cvref_t<Spec>, Arg>::value;
+
 template <typename F, typename SpecsTuple, std::size_t... I>
-[[nodiscard]] consteval bool bound_task_fanout_prev_valid_impl(std::index_sequence<I...>) {
-    return (((!is_from_prev_spec_v<std::tuple_element_t<I, SpecsTuple>>) ||
-             exact_const_lvalue_ref_v<nth_arg_t<I, F>>) && ...);
+[[nodiscard]] consteval bool bound_task_prev_access_bindings_valid_impl(std::index_sequence<I...>) {
+    return (((!is_prev_access_spec_v<std::tuple_element_t<I, SpecsTuple>>) ||
+             prev_access_binding_valid_v<
+                 std::tuple_element_t<I, SpecsTuple>,
+                 nth_arg_t<I, F>>) && ...);
 }
-
-template <typename Task>
-struct fanout_prev_task_valid : std::true_type {};
-
-template <typename F, typename... Specs>
-struct fanout_prev_task_valid<bound_task<F, Specs...>>
-    : std::bool_constant<
-          bound_task_fanout_prev_valid_impl<
-              std::remove_cvref_t<F>,
-              std::tuple<Specs...>>(
-              std::index_sequence_for<Specs...> {})> {};
-
-template <typename F, typename T, typename... Specs>
-struct fanout_prev_task_valid<bound_output_task<F, T, Specs...>>
-    : std::bool_constant<
-          bound_task_fanout_prev_valid_impl<
-              std::remove_cvref_t<F>,
-              std::tuple<Specs...>>(
-              std::index_sequence_for<Specs...> {})> {};
-
-template <typename Task>
-struct fanout_prev_task_valid<catch_failure_task<Task>>
-    : fanout_prev_task_valid<Task> {};
-
-template <typename Task, typename Policy>
-struct fanout_prev_task_valid<catch_failure_with_policy_task<Task, Policy>>
-    : fanout_prev_task_valid<Task> {};
-
-template <typename Task, typename Policy>
-struct fanout_prev_task_valid<retry_task<Task, Policy>>
-    : fanout_prev_task_valid<Task> {};
-
-template <typename Task>
-inline constexpr bool fanout_prev_task_valid_v =
-    fanout_prev_task_valid<std::remove_cvref_t<Task>>::value;
 
 template <typename SpecsTuple, std::size_t... I>
-[[nodiscard]] consteval bool bound_task_uses_from_prev_impl(std::index_sequence<I...>) {
-    return (is_from_prev_spec_v<std::tuple_element_t<I, SpecsTuple>> || ...);
+[[nodiscard]] consteval std::size_t bound_task_prev_access_count_impl(std::index_sequence<I...>) {
+    return (std::size_t {0} + ... +
+            (is_prev_access_spec_v<std::tuple_element_t<I, SpecsTuple>> ? std::size_t {1}
+                                                                        : std::size_t {0}));
+}
+
+template <typename SpecsTuple, std::size_t... I>
+[[nodiscard]] consteval std::size_t bound_task_consume_prev_count_impl(std::index_sequence<I...>) {
+    return (std::size_t {0} + ... +
+            (is_consume_prev_spec_v<std::tuple_element_t<I, SpecsTuple>> ? std::size_t {1}
+                                                                         : std::size_t {0}));
+}
+
+template <typename SpecsTuple, std::size_t... I>
+[[nodiscard]] consteval std::size_t bound_task_exclusive_prev_access_count_impl(
+    std::index_sequence<I...>) {
+    return (std::size_t {0} + ... +
+            (is_exclusive_prev_access_spec_v<std::tuple_element_t<I, SpecsTuple>>
+                 ? std::size_t {1}
+                 : std::size_t {0}));
+}
+
+template <typename SpecsTuple, std::size_t... I>
+[[nodiscard]] consteval bool bound_task_uses_exclusive_prev_access_impl(std::index_sequence<I...>) {
+    return (is_exclusive_prev_access_spec_v<std::tuple_element_t<I, SpecsTuple>> || ...);
 }
 
 template <typename Task>
-struct task_uses_from_prev : std::false_type {};
+struct task_prev_access_valid : std::true_type {};
+
+template <typename Task>
+struct task_uses_prev_access : std::false_type {};
+
+template <typename Task>
+struct task_uses_exclusive_prev_access : std::false_type {};
+
+template <typename Task>
+struct task_uses_consume_prev : std::false_type {};
+
+/**
+ * @brief Validates the declared prev-access usage of a bound task.
+ *
+ * There are two layers of checks here:
+ *
+ * - every prev-access spec must match the callable parameter type exactly
+ *   according to its declared mode:
+ *   - `borrow_prev<T>()` -> `const T&`
+ *   - `borrow_prev_mut<T>()` -> `T&`
+ *   - `consume_prev<T>()` -> `T` or `T&&`
+ * - `borrow_prev(...)` may appear multiple times because it is readonly shared
+ *   access to the same direct parent source
+ * - any exclusive access (`borrow_prev_mut(...)` or `consume_prev(...)`) must
+ *   be the task's only prev-access declaration
+ *
+ * That exclusivity rule is what the local `prev_access_count /
+ * exclusive_prev_access_count` calculation enforces below:
+ *
+ * - `exclusive_prev_access_count == 0` means the task uses only
+ *   `borrow_prev(...)`, which may repeat
+ * - `exclusive_prev_access_count == 1 && prev_access_count == 1` means there
+ *   is exactly one exclusive access spec, and it is also the task's only
+ *   prev-access spec
+ *
+ * As a result, the validation rejects:
+ *
+ * - multiple `borrow_prev_mut(...)` specs in the same task
+ * - multiple `consume_prev(...)` specs in the same task
+ * - mixing `borrow_prev_mut(...)` with `borrow_prev(...)`
+ * - mixing `borrow_prev_mut(...)` with `consume_prev(...)`
+ * - mixing `consume_prev(...)` with `borrow_prev(...)`
+ *
+ * This keeps exclusive access unambiguous and avoids depending on function
+ * argument evaluation order when one parameter would request unique mutable or
+ * consuming access while another parameter still tries to access the same
+ * direct parent source.
+ */
+template <typename F, typename... Specs>
+struct task_prev_access_valid<bound_task<F, Specs...>>
+    : std::bool_constant<
+          bound_task_prev_access_bindings_valid_impl<
+              std::remove_cvref_t<F>,
+              std::tuple<Specs...>>(
+              std::index_sequence_for<Specs...> {}) &&
+          [] {
+              constexpr auto prev_access_count = bound_task_prev_access_count_impl<
+                  std::tuple<Specs...>>(
+                  std::index_sequence_for<Specs...> {});
+              constexpr auto exclusive_prev_access_count =
+                  bound_task_exclusive_prev_access_count_impl<
+                      std::tuple<Specs...>>(
+                      std::index_sequence_for<Specs...> {});
+
+              return exclusive_prev_access_count == 0 ||
+                     (exclusive_prev_access_count == 1 && prev_access_count == 1);
+          }()> {};
 
 template <typename F, typename... Specs>
-struct task_uses_from_prev<bound_task<F, Specs...>>
+struct task_uses_prev_access<bound_task<F, Specs...>>
     : std::bool_constant<
-          bound_task_uses_from_prev_impl<
+          bound_task_prev_access_count_impl<
+              std::tuple<Specs...>>(
+              std::index_sequence_for<Specs...> {}) != 0> {};
+
+template <typename F, typename... Specs>
+struct task_uses_exclusive_prev_access<bound_task<F, Specs...>>
+    : std::bool_constant<
+          bound_task_uses_exclusive_prev_access_impl<
+              std::tuple<Specs...>>(
+              std::index_sequence_for<Specs...> {})> {};
+
+template <typename F, typename... Specs>
+struct task_uses_consume_prev<bound_task<F, Specs...>>
+    : std::bool_constant<
+          bound_task_consume_prev_count_impl<
+              std::tuple<Specs...>>(
+              std::index_sequence_for<Specs...> {}) != 0> {};
+
+template <typename F, typename T, typename... Specs>
+struct task_prev_access_valid<bound_output_task<F, T, Specs...>>
+    : std::bool_constant<
+          bound_task_prev_access_bindings_valid_impl<
+              std::remove_cvref_t<F>,
+              std::tuple<Specs...>>(
+              std::index_sequence_for<Specs...> {}) &&
+          [] {
+              constexpr auto prev_access_count = bound_task_prev_access_count_impl<
+                  std::tuple<Specs...>>(
+                  std::index_sequence_for<Specs...> {});
+              constexpr auto exclusive_prev_access_count =
+                  bound_task_exclusive_prev_access_count_impl<
+                      std::tuple<Specs...>>(
+                      std::index_sequence_for<Specs...> {});
+
+              return exclusive_prev_access_count == 0 ||
+                     (exclusive_prev_access_count == 1 && prev_access_count == 1);
+          }()> {};
+
+template <typename F, typename T, typename... Specs>
+struct task_uses_prev_access<bound_output_task<F, T, Specs...>>
+    : std::bool_constant<
+          bound_task_prev_access_count_impl<
+              std::tuple<Specs...>>(
+              std::index_sequence_for<Specs...> {}) != 0> {};
+
+template <typename F, typename T, typename... Specs>
+struct task_uses_exclusive_prev_access<bound_output_task<F, T, Specs...>>
+    : std::bool_constant<
+          bound_task_uses_exclusive_prev_access_impl<
               std::tuple<Specs...>>(
               std::index_sequence_for<Specs...> {})> {};
 
 template <typename F, typename T, typename... Specs>
-struct task_uses_from_prev<bound_output_task<F, T, Specs...>>
+struct task_uses_consume_prev<bound_output_task<F, T, Specs...>>
     : std::bool_constant<
-          bound_task_uses_from_prev_impl<
+          bound_task_consume_prev_count_impl<
               std::tuple<Specs...>>(
-              std::index_sequence_for<Specs...> {})> {};
+              std::index_sequence_for<Specs...> {}) != 0> {};
 
 template <typename Task>
-struct task_uses_from_prev<catch_failure_task<Task>>
-    : task_uses_from_prev<Task> {};
-
-template <typename Task, typename Policy>
-struct task_uses_from_prev<catch_failure_with_policy_task<Task, Policy>>
-    : task_uses_from_prev<Task> {};
-
-template <typename Task, typename Policy>
-struct task_uses_from_prev<retry_task<Task, Policy>>
-    : task_uses_from_prev<Task> {};
+struct task_prev_access_valid<catch_failure_task<Task>>
+    : task_prev_access_valid<Task> {};
 
 template <typename Task>
-inline constexpr bool task_uses_from_prev_v =
-    task_uses_from_prev<std::remove_cvref_t<Task>>::value;
+struct task_uses_prev_access<catch_failure_task<Task>>
+    : task_uses_prev_access<Task> {};
+
+template <typename Task>
+struct task_uses_exclusive_prev_access<catch_failure_task<Task>>
+    : task_uses_exclusive_prev_access<Task> {};
+
+template <typename Task>
+struct task_uses_consume_prev<catch_failure_task<Task>>
+    : task_uses_consume_prev<Task> {};
+
+template <typename Task, typename Policy>
+struct task_prev_access_valid<catch_failure_with_policy_task<Task, Policy>>
+    : task_prev_access_valid<Task> {};
+
+template <typename Task, typename Policy>
+struct task_uses_prev_access<catch_failure_with_policy_task<Task, Policy>>
+    : task_uses_prev_access<Task> {};
+
+template <typename Task, typename Policy>
+struct task_uses_exclusive_prev_access<catch_failure_with_policy_task<Task, Policy>>
+    : task_uses_exclusive_prev_access<Task> {};
+
+template <typename Task, typename Policy>
+struct task_uses_consume_prev<catch_failure_with_policy_task<Task, Policy>>
+    : task_uses_consume_prev<Task> {};
+
+template <typename Task, typename Policy>
+struct task_prev_access_valid<retry_task<Task, Policy>>
+    : std::bool_constant<
+          task_prev_access_valid<Task>::value &&
+          !task_uses_consume_prev<Task>::value> {};
+
+template <typename Task, typename Policy>
+struct task_uses_prev_access<retry_task<Task, Policy>>
+    : task_uses_prev_access<Task> {};
+
+template <typename Task, typename Policy>
+struct task_uses_exclusive_prev_access<retry_task<Task, Policy>>
+    : task_uses_exclusive_prev_access<Task> {};
+
+template <typename Task, typename Policy>
+struct task_uses_consume_prev<retry_task<Task, Policy>>
+    : task_uses_consume_prev<Task> {};
+
+template <typename Task>
+inline constexpr bool task_prev_access_valid_v =
+    task_prev_access_valid<std::remove_cvref_t<Task>>::value;
+
+template <typename Task>
+inline constexpr bool task_uses_prev_access_v =
+    task_uses_prev_access<std::remove_cvref_t<Task>>::value;
+
+template <typename Task>
+inline constexpr bool task_uses_exclusive_prev_access_v =
+    task_uses_exclusive_prev_access<std::remove_cvref_t<Task>>::value;
+
+template <typename Task>
+inline constexpr bool task_uses_consume_prev_v =
+    task_uses_consume_prev<std::remove_cvref_t<Task>>::value;
 
 /**
- * @brief Minimal static-plan protocol required by the fan-out `from_prev`
- * validation path for a specific node index.
- *
- * This intentionally checks only the plan surface consumed by
- * `node_fanout_prev_valid()`: a root sentinel, per-node parent lookup,
- * per-node task type exposure, and per-node child count exposure.
- *
- * The concept is purposefully interface-based rather than tied to
- * `compiled_plan<...>` so future plan backends can reuse the same validation
- * logic as long as they expose the same compile-time protocol.
- *
- * @tparam Plan Candidate plan type.
- * @tparam I Node index being validated.
+ * @brief Minimal static-plan protocol required by the prev-access validation
+ * path for a specific node index.
  */
 template <typename Plan, std::size_t I>
-concept fanout_validatable_plan_node =
+concept prev_access_validatable_plan_node =
     requires {
         { Plan::no_parent } -> std::convertible_to<std::size_t>;
         { Plan::template parent_index<I> } -> std::convertible_to<std::size_t>;
+        { Plan::template child_count<I> } -> std::convertible_to<std::size_t>;
         typename Plan::template task_type<I>;
     };
 
 /**
- * @brief Checks whether node `I` is structurally allowed to use
- * `from_prev(...)` at all.
- *
- * This validation is intentionally narrower than full `from_prev` type
- * checking. It only answers the question "does this node have a readable
- * direct-parent payload source?" and therefore rejects two cases early at the
- * `run_plan(...)` boundary:
- *
- * - the root node uses `from_prev(...)`
- * - the direct parent exists but its compiled output type is `void`
- *
- * It does not attempt to validate the requested payload type `T` inside
- * `from_prev<T>()`, nor whether that `T` matches the direct parent payload
- * exactly. Those finer-grained binding checks remain in the resolution layer,
- * so this helper stays focused on plan-structure legality instead of becoming
- * a full duplicate of `resolve_as(from_prev_t<...>, ...)`.
- *
- * @tparam Plan Compiled plan type being validated.
- * @tparam I Node index within `Plan`.
- * @return `true` when node `I` either does not use `from_prev(...)` or has a
- * non-void direct parent payload source; otherwise `false`.
+ * @brief Checks whether node `I` is structurally allowed to use direct-parent
+ * access at all.
  */
 template <typename Plan, std::size_t I>
-    requires fanout_validatable_plan_node<Plan, I>
+    requires prev_access_validatable_plan_node<Plan, I>
 [[nodiscard]] consteval bool node_prev_source_valid() {
     using task_t = typename Plan::template task_type<I>;
 
     if constexpr (Plan::template parent_index<I> == Plan::no_parent) {
-        return !task_uses_from_prev_v<task_t>;
+        return !task_uses_prev_access_v<task_t>;
     } else {
         constexpr auto parent = Plan::template parent_index<I>;
 
         if constexpr (std::is_void_v<typename Plan::template output_type<parent>>) {
-            return !task_uses_from_prev_v<task_t>;
+            return !task_uses_prev_access_v<task_t>;
         } else {
             return true;
         }
     }
 }
 
+/**
+ * @brief Checks whether node `I`'s declared prev-access mode is compatible
+ * with the surrounding plan structure.
+ *
+ * This first reuses the task-local validation (`task_prev_access_valid_v`) and
+ * then applies the current structural exclusivity rule: when a direct parent
+ * has multiple children, only shared readonly `borrow_prev(...)` access is
+ * allowed; exclusive access (`borrow_prev_mut(...)` / `consume_prev(...)`) is
+ * only valid for single-child paths.
+ */
 template <typename Plan, std::size_t I>
-    requires fanout_validatable_plan_node<Plan, I>
-[[nodiscard]] consteval bool node_fanout_prev_valid() {
-    if constexpr (Plan::template parent_index<I> == Plan::no_parent) {
+    requires prev_access_validatable_plan_node<Plan, I>
+[[nodiscard]] consteval bool node_prev_access_valid() {
+    using task_t = typename Plan::template task_type<I>;
+
+    if constexpr (!task_prev_access_valid_v<task_t>) {
+        return false;
+    } else if constexpr (Plan::template parent_index<I> == Plan::no_parent) {
         return true;
     } else {
         constexpr auto parent = Plan::template parent_index<I>;
@@ -207,21 +367,21 @@ template <typename Plan, std::size_t I>
         if constexpr (Plan::template child_count<parent> <= 1) {
             return true;
         } else {
-            return fanout_prev_task_valid_v<typename Plan::template task_type<I>>;
+            return !task_uses_exclusive_prev_access_v<task_t>;
         }
     }
 }
 
 template <typename Plan, std::size_t... I>
-    requires (fanout_validatable_plan_node<Plan, I> && ...)
+    requires (prev_access_validatable_plan_node<Plan, I> && ...)
 [[nodiscard]] consteval bool plan_prev_source_valid_impl(std::index_sequence<I...>) {
     return (node_prev_source_valid<Plan, I>() && ...);
 }
 
 template <typename Plan, std::size_t... I>
-    requires (fanout_validatable_plan_node<Plan, I> && ...)
-[[nodiscard]] consteval bool plan_fanout_prev_valid_impl(std::index_sequence<I...>) {
-    return (node_fanout_prev_valid<Plan, I>() && ...);
+    requires (prev_access_validatable_plan_node<Plan, I> && ...)
+[[nodiscard]] consteval bool plan_prev_access_valid_impl(std::index_sequence<I...>) {
+    return (node_prev_access_valid<Plan, I>() && ...);
 }
 
 template <typename Plan>
@@ -229,7 +389,7 @@ inline constexpr bool plan_prev_source_valid_v =
     plan_prev_source_valid_impl<Plan>(std::make_index_sequence<Plan::node_count> {});
 
 template <typename Plan>
-inline constexpr bool plan_fanout_prev_valid_v =
-    plan_fanout_prev_valid_impl<Plan>(std::make_index_sequence<Plan::node_count> {});
+inline constexpr bool plan_prev_access_valid_v =
+    plan_prev_access_valid_impl<Plan>(std::make_index_sequence<Plan::node_count> {});
 
 } // namespace yorch::detail

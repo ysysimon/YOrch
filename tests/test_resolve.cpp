@@ -1,4 +1,5 @@
 #include "yorch/resolve.hpp"
+#include "yorch/detail/executor/prev_validation.hpp"
 
 #include <gtest/gtest.h>
 
@@ -106,36 +107,95 @@ TEST(ResolveTest, ResolveConstValueSpecPreservesConstSourceRules) {
     EXPECT_EQ(bound.data(), spec.v.data());
 }
 
-TEST(ResolveTest, ResolveFromPrevBorrowsMutableDirectParentSlot) {
+TEST(ResolveTest, ResolveBorrowPrevMutBorrowsMutableDirectParentSlot) {
     int parent_value = 4;
     yorch::exec_context<void, decltype(yorch::prev_slot(parent_value))> exec {
         yorch::prev_slot(parent_value)};
 
-    auto&& bound = yorch::resolve_as<int&>(yorch::from_prev<int>(), exec);
-    auto copied = yorch::resolve_as<long>(yorch::from_prev<int>(), exec);
+    auto&& bound = yorch::resolve_as<int&>(yorch::borrow_prev_mut<int>(), exec);
 
     static_assert(std::is_same_v<decltype(bound), int&>);
-    static_assert(std::is_same_v<decltype(copied), long>);
 
     bound = 9;
 
     EXPECT_EQ(parent_value, 9);
-    EXPECT_EQ(copied, 4);
 }
 
-TEST(ResolveTest, ResolveFromPrevPreservesConstParentSourceRules) {
+TEST(ResolveTest, ResolveBorrowPrevPreservesConstParentSourceRules) {
     const std::string parent_value = "root";
     yorch::exec_context<void, decltype(yorch::prev_slot(parent_value))> exec {
         yorch::prev_slot(parent_value)};
 
     auto&& bound =
-        yorch::resolve_as<const std::string&>(yorch::from_prev<std::string>(), exec);
-    auto copied = yorch::resolve_as<std::string>(yorch::from_prev<std::string>(), exec);
+        yorch::resolve_as<const std::string&>(yorch::borrow_prev<std::string>(), exec);
 
     static_assert(std::is_same_v<decltype(bound), const std::string&>);
-    static_assert(std::is_same_v<decltype(copied), std::string>);
 
     EXPECT_EQ(bound, "root");
-    EXPECT_EQ(copied, "root");
     EXPECT_EQ(bound.data(), parent_value.data());
+}
+
+TEST(ResolveTest, ResolveConsumePrevMovesFromMutableDirectParentSlot) {
+    std::string parent_value = "root";
+    yorch::exec_context<void, decltype(yorch::prev_slot(parent_value))> exec {
+        yorch::prev_slot(parent_value)};
+
+    auto consumed = yorch::resolve_as<std::string>(yorch::consume_prev<std::string>(), exec);
+
+    static_assert(std::is_same_v<decltype(consumed), std::string>);
+
+    EXPECT_EQ(consumed, "root");
+    EXPECT_TRUE(parent_value.empty());
+}
+
+TEST(ResolveTest, ResolveConsumePrevSupportsRvalueReferenceTargets) {
+    std::string parent_value = "root";
+    yorch::exec_context<void, decltype(yorch::prev_slot(parent_value))> exec {
+        yorch::prev_slot(parent_value)};
+
+    auto&& consumed =
+        yorch::resolve_as<std::string&&>(yorch::consume_prev<std::string>(), exec);
+
+    static_assert(std::is_same_v<decltype(consumed), std::string&&>);
+
+    consumed = "moved";
+
+    EXPECT_EQ(parent_value, "moved");
+}
+
+TEST(ResolveTest, PrevAccessBindingValidationMatchesDeclaredAccessModes) {
+    static_assert(yorch::detail::prev_access_binding_valid_v<
+                  yorch::borrow_prev_t<int>,
+                  const int&>);
+    static_assert(!yorch::detail::prev_access_binding_valid_v<
+                  yorch::borrow_prev_t<int>,
+                  int&>);
+    static_assert(!yorch::detail::prev_access_binding_valid_v<
+                  yorch::borrow_prev_t<int>,
+                  int>);
+
+    static_assert(yorch::detail::prev_access_binding_valid_v<
+                  yorch::borrow_prev_mut_t<int>,
+                  int&>);
+    static_assert(!yorch::detail::prev_access_binding_valid_v<
+                  yorch::borrow_prev_mut_t<int>,
+                  const int&>);
+    static_assert(!yorch::detail::prev_access_binding_valid_v<
+                  yorch::borrow_prev_mut_t<int>,
+                  int&&>);
+
+    static_assert(yorch::detail::prev_access_binding_valid_v<
+                  yorch::consume_prev_t<int>,
+                  int>);
+    static_assert(yorch::detail::prev_access_binding_valid_v<
+                  yorch::consume_prev_t<int>,
+                  int&&>);
+    static_assert(!yorch::detail::prev_access_binding_valid_v<
+                  yorch::consume_prev_t<int>,
+                  const int&>);
+    static_assert(!yorch::detail::prev_access_binding_valid_v<
+                  yorch::consume_prev_t<int>,
+                  int&>);
+
+    SUCCEED();
 }

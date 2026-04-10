@@ -86,6 +86,18 @@ struct immovable_payload {
     int value = 0;
 };
 
+struct move_only_payload {
+    explicit move_only_payload(int in) : value(in) {}
+
+    move_only_payload(const move_only_payload&) = delete;
+    move_only_payload& operator=(const move_only_payload&) = delete;
+    move_only_payload(move_only_payload&&) noexcept = default;
+    move_only_payload& operator=(move_only_payload&&) noexcept = default;
+    ~move_only_payload() = default;
+
+    int value = 0;
+};
+
 template <typename Plan>
 concept can_run_plan =
     requires(Plan& plan) {
@@ -360,13 +372,13 @@ TEST(ExecutorTest, RunPlanPropagatesDirectParentPayloadsOnly) {
                 return yorch::task_result<std::string>::success(
                     std::to_string(value * 3));
             },
-            yorch::from_prev<int>()))
+            yorch::borrow_prev<int>()))
             .node<2>(yorch::bind(
                 [&](const std::string& value) noexcept -> yorch::step_result {
                     seen_child = value;
                     return yorch::step_result::success();
                 },
-                yorch::from_prev<std::string>()));
+                yorch::borrow_prev<std::string>()));
 
     auto plan = yorch::compile_plan(tree);
     const auto result = yorch::run_plan(plan);
@@ -392,21 +404,21 @@ TEST(ExecutorTest, RunPlanCompactLayoutMatchesOneToOneBehavior) {
                     trace.emplace_back("B");
                     return yorch::task_result<std::string>::success(std::to_string(value * 2));
                 },
-                yorch::from_prev<int>()))
+                yorch::borrow_prev<int>()))
                 .node<2>(yorch::bind(
                     [&](const std::string& text) noexcept -> yorch::step_result {
                         trace.emplace_back("C");
                         leaf = static_cast<int>(text.size());
                         return yorch::step_result::success();
                     },
-                    yorch::from_prev<std::string>()))
+                    yorch::borrow_prev<std::string>()))
             .node<1>(yorch::bind(
                 [&](const int& value) noexcept -> yorch::step_result {
                     trace.emplace_back("D");
                     leaf += value;
                     return yorch::step_result::success();
                 },
-                yorch::from_prev<int>()));
+                yorch::borrow_prev<int>()));
     };
 
     auto default_plan = yorch::compile_plan(make_tree(default_trace, default_leaf));
@@ -437,21 +449,21 @@ TEST(ExecutorTest, RunPlanExplicitHeapStackMatchesRecursiveBehavior) {
                     trace.emplace_back("B");
                     return yorch::task_result<std::string>::success(std::to_string(value * 2));
                 },
-                yorch::from_prev<int>()))
+                yorch::borrow_prev<int>()))
                 .node<2>(yorch::bind(
                     [&](const std::string& text) noexcept -> yorch::step_result {
                         trace.emplace_back("C");
                         leaf = static_cast<int>(text.size());
                         return yorch::step_result::success();
                     },
-                    yorch::from_prev<std::string>()))
+                    yorch::borrow_prev<std::string>()))
             .node<1>(yorch::bind(
                 [&](const int& value) noexcept -> yorch::step_result {
                     trace.emplace_back("D");
                     leaf += value;
                     return yorch::step_result::success();
                 },
-                yorch::from_prev<int>()));
+                yorch::borrow_prev<int>()));
     };
 
     auto recursive_plan = yorch::compile_plan(make_tree(recursive_trace, recursive_leaf));
@@ -484,7 +496,7 @@ TEST(ExecutorTest, RunPlanTraversesDepthFirstAndKeepsParentPayloadAlive) {
                 EXPECT_EQ(tracker.live_count, 1);
                 return value.value + 1;
             },
-            yorch::from_prev<lifetime_probe>()))
+            yorch::borrow_prev<lifetime_probe>()))
             .node<2>(yorch::bind(
                 [&](const int& value) noexcept -> yorch::step_result {
                     trace.emplace_back("C");
@@ -492,7 +504,7 @@ TEST(ExecutorTest, RunPlanTraversesDepthFirstAndKeepsParentPayloadAlive) {
                     EXPECT_EQ(tracker.live_count, 1);
                     return yorch::step_result::success();
                 },
-                yorch::from_prev<int>()))
+                yorch::borrow_prev<int>()))
         .node<1>(yorch::bind(
             [&](const lifetime_probe& value) noexcept -> yorch::step_result {
                 trace.emplace_back("D");
@@ -500,7 +512,7 @@ TEST(ExecutorTest, RunPlanTraversesDepthFirstAndKeepsParentPayloadAlive) {
                 EXPECT_EQ(tracker.live_count, 1);
                 return yorch::step_result::success();
             },
-            yorch::from_prev<lifetime_probe>()))
+            yorch::borrow_prev<lifetime_probe>()))
             .node<2>(yorch::bind([&]() noexcept -> yorch::step_result {
                 trace.emplace_back("E");
                 EXPECT_EQ(tracker.live_count, 1);
@@ -516,6 +528,64 @@ TEST(ExecutorTest, RunPlanTraversesDepthFirstAndKeepsParentPayloadAlive) {
     EXPECT_EQ(tracker.destroyed_count, 2);
 }
 
+TEST(ExecutorTest, RunPlanSupportsExclusiveMutablePrevBorrowForSingleChild) {
+    int seen_mutated = 0;
+    int seen_grandchild = 0;
+
+    auto tree = yorch::task_tree.root(yorch::bind([]() noexcept -> int {
+            return 5;
+        }))
+        .node<1>(yorch::bind(
+            [&](int& value) noexcept -> int {
+                value += 4;
+                seen_mutated = value;
+                return value;
+            },
+            yorch::borrow_prev_mut<int>()))
+            .node<2>(yorch::bind(
+                [&](const int& value) noexcept -> yorch::step_result {
+                    seen_grandchild = value;
+                    return yorch::step_result::success();
+                },
+                yorch::borrow_prev<int>()));
+
+    auto plan = yorch::compile_plan(tree);
+    const auto result = yorch::run_plan(plan);
+
+    EXPECT_TRUE(result.ok());
+    EXPECT_EQ(seen_mutated, 9);
+    EXPECT_EQ(seen_grandchild, 9);
+}
+
+TEST(ExecutorTest, RunPlanSupportsConsumePrevForSingleChildMoveOnlyPayload) {
+    int seen_default = 0;
+    int seen_compact = 0;
+
+    auto make_tree = [](int& seen) {
+        return yorch::task_tree.root(yorch::bind([]() noexcept -> move_only_payload {
+                return move_only_payload {17};
+            }))
+            .node<1>(yorch::bind(
+                [&](move_only_payload value) noexcept -> yorch::step_result {
+                    seen = value.value;
+                    return yorch::step_result::success();
+                },
+                yorch::consume_prev<move_only_payload>()));
+    };
+
+    auto default_plan = yorch::compile_plan(make_tree(seen_default));
+    auto compact_plan = yorch::compile_plan(make_tree(seen_compact));
+
+    const auto default_result = yorch::run_plan(default_plan);
+    const auto compact_result =
+        yorch::run_plan<yorch::slot_layout_serial_dfs_compact_policy>(compact_plan);
+
+    EXPECT_TRUE(default_result.ok());
+    EXPECT_TRUE(compact_result.ok());
+    EXPECT_EQ(seen_default, 17);
+    EXPECT_EQ(seen_compact, 17);
+}
+
 TEST(ExecutorTest, RunPlanConsumesAbortBranchLocallyAndContinuesSiblings) {
     std::vector<std::string> trace;
 
@@ -528,7 +598,7 @@ TEST(ExecutorTest, RunPlanConsumesAbortBranchLocallyAndContinuesSiblings) {
                 trace.emplace_back("B");
                 return yorch::step_result::abort_branch();
             },
-            yorch::from_prev<int>()))
+            yorch::borrow_prev<int>()))
             .node<2>(yorch::bind([&]() noexcept -> yorch::step_result {
                 trace.emplace_back("C");
                 return yorch::step_result::success();
@@ -538,7 +608,7 @@ TEST(ExecutorTest, RunPlanConsumesAbortBranchLocallyAndContinuesSiblings) {
                 trace.emplace_back("D");
                 return yorch::step_result::success();
             },
-            yorch::from_prev<int>()))
+            yorch::borrow_prev<int>()))
             .node<2>(yorch::bind([&]() noexcept -> yorch::step_result {
                 trace.emplace_back("E");
                 return yorch::step_result::success();
@@ -563,7 +633,7 @@ TEST(ExecutorTest, RunPlanExplicitHeapStackConsumesAbortBranchLocallyAndContinue
                 trace.emplace_back("B");
                 return yorch::step_result::abort_branch();
             },
-            yorch::from_prev<int>()))
+            yorch::borrow_prev<int>()))
             .node<2>(yorch::bind([&]() noexcept -> yorch::step_result {
                 trace.emplace_back("C");
                 return yorch::step_result::success();
@@ -573,7 +643,7 @@ TEST(ExecutorTest, RunPlanExplicitHeapStackConsumesAbortBranchLocallyAndContinue
                 trace.emplace_back("D");
                 return yorch::step_result::success();
             },
-            yorch::from_prev<int>()))
+            yorch::borrow_prev<int>()))
             .node<2>(yorch::bind([&]() noexcept -> yorch::step_result {
                 trace.emplace_back("E");
                 return yorch::step_result::success();
@@ -601,13 +671,13 @@ TEST(ExecutorTest, RunPlanPropagatesAbortExecutionFromChild) {
                 trace.emplace_back("B");
                 return yorch::step_result::abort_execution();
             },
-            yorch::from_prev<int>()))
+            yorch::borrow_prev<int>()))
         .node<1>(yorch::bind(
             [&](const int&) noexcept -> yorch::step_result {
                 trace.emplace_back("C");
                 return yorch::step_result::success();
             },
-            yorch::from_prev<int>()));
+            yorch::borrow_prev<int>()));
 
     auto plan = yorch::compile_plan(tree);
     const auto result = yorch::run_plan(plan);
@@ -628,13 +698,13 @@ TEST(ExecutorTest, RunPlanPropagatesFailureFromChildAndStopsSiblings) {
                 trace.emplace_back("B");
                 return yorch::step_result::failure();
             },
-            yorch::from_prev<int>()))
+            yorch::borrow_prev<int>()))
         .node<1>(yorch::bind(
             [&](const int&) noexcept -> yorch::step_result {
                 trace.emplace_back("C");
                 return yorch::step_result::success();
             },
-            yorch::from_prev<int>()));
+            yorch::borrow_prev<int>()));
 
     auto plan = yorch::compile_plan(tree);
     const auto result = yorch::run_plan(plan);
@@ -655,13 +725,13 @@ TEST(ExecutorTest, RunPlanExplicitHeapStackPropagatesFailureFromChildAndStopsSib
                 trace.emplace_back("B");
                 return yorch::step_result::failure();
             },
-            yorch::from_prev<int>()))
+            yorch::borrow_prev<int>()))
         .node<1>(yorch::bind(
             [&](const int&) noexcept -> yorch::step_result {
                 trace.emplace_back("C");
                 return yorch::step_result::success();
             },
-            yorch::from_prev<int>()));
+            yorch::borrow_prev<int>()));
 
     auto plan = yorch::compile_plan(tree);
     const auto result =
@@ -688,13 +758,13 @@ TEST(ExecutorTest, RunPlanPropagatesRetryAndCleansUpLiveSlots) {
                 EXPECT_EQ(tracker.live_count, 1);
                 return yorch::step_result::retry();
             },
-            yorch::from_prev<lifetime_probe>()))
+            yorch::borrow_prev<lifetime_probe>()))
         .node<1>(yorch::bind(
             [&](const lifetime_probe&) noexcept -> yorch::step_result {
                 trace.emplace_back("C");
                 return yorch::step_result::success();
             },
-            yorch::from_prev<lifetime_probe>()));
+            yorch::borrow_prev<lifetime_probe>()));
 
     auto plan = yorch::compile_plan(tree);
     const auto result = yorch::run_plan(plan);
@@ -720,13 +790,13 @@ TEST(ExecutorTest, RunPlanCompactLayoutPropagatesRetryAndCleansUpLiveSlots) {
                 EXPECT_EQ(tracker.live_count, 1);
                 return yorch::step_result::retry();
             },
-            yorch::from_prev<lifetime_probe>()))
+            yorch::borrow_prev<lifetime_probe>()))
         .node<1>(yorch::bind(
             [&](const lifetime_probe&) noexcept -> yorch::step_result {
                 trace.emplace_back("C");
                 return yorch::step_result::success();
             },
-            yorch::from_prev<lifetime_probe>()));
+            yorch::borrow_prev<lifetime_probe>()));
 
     auto plan = yorch::compile_plan(tree);
     const auto result =
@@ -753,13 +823,13 @@ TEST(ExecutorTest, RunPlanExplicitHeapStackPropagatesRetryAndCleansUpLiveSlots) 
                 EXPECT_EQ(tracker.live_count, 1);
                 return yorch::step_result::retry();
             },
-            yorch::from_prev<lifetime_probe>()))
+            yorch::borrow_prev<lifetime_probe>()))
         .node<1>(yorch::bind(
             [&](const lifetime_probe&) noexcept -> yorch::step_result {
                 trace.emplace_back("C");
                 return yorch::step_result::success();
             },
-            yorch::from_prev<lifetime_probe>()));
+            yorch::borrow_prev<lifetime_probe>()));
 
     auto plan = yorch::compile_plan(tree);
     const auto result =
@@ -786,7 +856,7 @@ TEST(ExecutorTest, RunPlanSupportsContextAndTaskAdapters) {
             [](const int&) -> yorch::step_result {
                 throw std::runtime_error("boom");
             },
-            yorch::from_prev<int>())));
+            yorch::borrow_prev<int>())));
 
     auto plan = yorch::compile_plan(tree);
     const auto result = yorch::run_plan(plan, ctx);
@@ -808,7 +878,7 @@ TEST(ExecutorTest, RunPlanExplicitHeapStackSupportsContextAndTaskAdapters) {
             [](const int&) -> yorch::step_result {
                 throw std::runtime_error("boom");
             },
-            yorch::from_prev<int>())));
+            yorch::borrow_prev<int>())));
 
     auto plan = yorch::compile_plan(tree);
 
@@ -839,7 +909,7 @@ TEST(ExecutorTest, RunPlanSupportsDirectOutputTasksAndImmovablePayloads) {
                 seen_value = value.value;
                 return yorch::step_result::success();
             },
-            yorch::from_prev<immovable_payload>()));
+            yorch::borrow_prev<immovable_payload>()));
 
     auto plan = yorch::compile_plan(tree);
     const auto result = yorch::run_plan(plan);
@@ -860,7 +930,7 @@ TEST(ExecutorTest, RunPlanSupportsCompactLayoutForDirectOutputTasksAndImmovableP
                 seen_value = value.value;
                 return yorch::step_result::success();
             },
-            yorch::from_prev<immovable_payload>()));
+            yorch::borrow_prev<immovable_payload>()));
 
     auto plan = yorch::compile_plan(tree);
     const auto result =
@@ -882,7 +952,7 @@ TEST(ExecutorTest, RunPlanExplicitHeapStackSupportsCompactLayoutForDirectOutputT
                 seen_value = value.value;
                 return yorch::step_result::success();
             },
-            yorch::from_prev<immovable_payload>()));
+            yorch::borrow_prev<immovable_payload>()));
 
     auto plan = yorch::compile_plan(tree);
     const auto result =
@@ -906,7 +976,7 @@ TEST(ExecutorTest, RunPlanDestroysDirectOutputPayloadWhenNodeReturnsFailureAfter
             [&](const lifetime_probe&) noexcept -> yorch::step_result {
                 return yorch::step_result::success();
             },
-            yorch::from_prev<lifetime_probe>()));
+            yorch::borrow_prev<lifetime_probe>()));
 
     auto plan = yorch::compile_plan(tree);
     const auto result = yorch::run_plan(plan);
@@ -938,7 +1008,7 @@ TEST(ExecutorTest, RunPlanSupportsRetryAdapterOnDirectOutputTasks) {
                 seen_value = value;
                 return yorch::step_result::success();
             },
-            yorch::from_prev<int>()));
+            yorch::borrow_prev<int>()));
 
     auto plan = yorch::compile_plan(tree);
     const auto result = yorch::run_plan(plan);
@@ -962,7 +1032,7 @@ TEST(ExecutorTest, RunPlanSupportsCatchAdapterOnDirectOutputTasks) {
                 trace.emplace_back("child");
                 return yorch::step_result::success();
             },
-            yorch::from_prev<int>()));
+            yorch::borrow_prev<int>()));
 
     auto plan = yorch::compile_plan(tree);
     const auto result = yorch::run_plan(plan);
@@ -990,7 +1060,7 @@ TEST(ExecutorTest, RunPlanSupportsPerNodeRetryPolicies) {
                         ? yorch::step_result::retry()
                         : yorch::step_result::success();
                 },
-                yorch::from_prev<int>()),
+                yorch::borrow_prev<int>()),
             yorch::retry_fixed_policy {4}))
             .node<2>(yorch::bind([&]() noexcept -> yorch::step_result {
                 trace.emplace_back("C");
@@ -1006,7 +1076,7 @@ TEST(ExecutorTest, RunPlanSupportsPerNodeRetryPolicies) {
                         ? yorch::step_result::retry()
                         : yorch::step_result::success();
                 },
-                yorch::from_prev<int>()),
+                yorch::borrow_prev<int>()),
             yorch::retry_forever_policy {}));
 
     auto plan = yorch::compile_plan(tree);
@@ -1030,43 +1100,43 @@ TEST(ExecutorTest, RunPlanExplicitHeapStackTraversesMediumDepthLinearPlan) {
                 trace.push_back(value + 1);
                 return value + 1;
             },
-            yorch::from_prev<int>()))
+            yorch::borrow_prev<int>()))
             .node<2>(yorch::bind(
                 [&](const int& value) noexcept -> int {
                     trace.push_back(value + 1);
                     return value + 1;
                 },
-                yorch::from_prev<int>()))
+                yorch::borrow_prev<int>()))
                 .node<3>(yorch::bind(
                     [&](const int& value) noexcept -> int {
                         trace.push_back(value + 1);
                         return value + 1;
                     },
-                    yorch::from_prev<int>()))
+                    yorch::borrow_prev<int>()))
                     .node<4>(yorch::bind(
                         [&](const int& value) noexcept -> int {
                             trace.push_back(value + 1);
                             return value + 1;
                         },
-                        yorch::from_prev<int>()))
+                        yorch::borrow_prev<int>()))
                         .node<5>(yorch::bind(
                             [&](const int& value) noexcept -> int {
                                 trace.push_back(value + 1);
                                 return value + 1;
                             },
-                            yorch::from_prev<int>()))
+                            yorch::borrow_prev<int>()))
                             .node<6>(yorch::bind(
                                 [&](const int& value) noexcept -> int {
                                     trace.push_back(value + 1);
                                     return value + 1;
                                 },
-                                yorch::from_prev<int>()))
+                                yorch::borrow_prev<int>()))
                                 .node<7>(yorch::bind(
                                     [&](const int& value) noexcept -> yorch::step_result {
                                         trace.push_back(value + 1);
                                         return yorch::step_result::success();
                                     },
-                                    yorch::from_prev<int>()));
+                                    yorch::borrow_prev<int>()));
 
     auto plan = yorch::compile_plan(tree);
     const auto result =
@@ -1078,7 +1148,7 @@ TEST(ExecutorTest, RunPlanExplicitHeapStackTraversesMediumDepthLinearPlan) {
     EXPECT_EQ(trace, (std::vector<int> {0, 1, 2, 3, 4, 5, 6, 7}));
 }
 
-TEST(ExecutorTest, RunPlanAllowsConstPrevFanoutAndRejectsMutableOrValueFanout) {
+TEST(ExecutorTest, RunPlanAllowsReadonlyBorrowFanoutAndRejectsExclusiveAccessFanout) {
     auto valid_tree = yorch::task_tree.root(yorch::bind([]() noexcept -> int {
             return 1;
         }))
@@ -1086,12 +1156,12 @@ TEST(ExecutorTest, RunPlanAllowsConstPrevFanoutAndRejectsMutableOrValueFanout) {
             [](const int&) noexcept -> yorch::step_result {
                 return yorch::step_result::success();
             },
-            yorch::from_prev<int>()))
+            yorch::borrow_prev<int>()))
         .node<1>(yorch::bind(
             [](const int&) noexcept -> yorch::step_result {
                 return yorch::step_result::success();
             },
-            yorch::from_prev<int>()));
+            yorch::borrow_prev<int>()));
     auto valid_plan = yorch::compile_plan(valid_tree);
 
     auto invalid_ref_tree = yorch::task_tree.root(yorch::bind([]() noexcept -> int {
@@ -1101,12 +1171,12 @@ TEST(ExecutorTest, RunPlanAllowsConstPrevFanoutAndRejectsMutableOrValueFanout) {
             [](int&) noexcept -> yorch::step_result {
                 return yorch::step_result::success();
             },
-            yorch::from_prev<int>()))
+            yorch::borrow_prev_mut<int>()))
         .node<1>(yorch::bind(
             [](const int&) noexcept -> yorch::step_result {
                 return yorch::step_result::success();
             },
-            yorch::from_prev<int>()));
+            yorch::borrow_prev<int>()));
     auto invalid_ref_plan = yorch::compile_plan(invalid_ref_tree);
 
     auto invalid_value_tree = yorch::task_tree.root(yorch::bind([]() noexcept -> int {
@@ -1116,12 +1186,12 @@ TEST(ExecutorTest, RunPlanAllowsConstPrevFanoutAndRejectsMutableOrValueFanout) {
             [](int) noexcept -> yorch::step_result {
                 return yorch::step_result::success();
             },
-            yorch::from_prev<int>()))
+            yorch::consume_prev<int>()))
         .node<1>(yorch::bind(
             [](const int&) noexcept -> yorch::step_result {
                 return yorch::step_result::success();
             },
-            yorch::from_prev<int>()));
+            yorch::borrow_prev<int>()));
     auto invalid_value_plan = yorch::compile_plan(invalid_value_tree);
 
     static_assert(can_run_plan<decltype(valid_plan)>);
@@ -1132,27 +1202,142 @@ TEST(ExecutorTest, RunPlanAllowsConstPrevFanoutAndRejectsMutableOrValueFanout) {
     EXPECT_TRUE(result.ok());
 }
 
-TEST(ExecutorTest, RunPlanRejectsFromPrevOnRootNode) {
+TEST(ExecutorTest, RunPlanAllowsMultipleReadonlyBorrowsWithinOneTask) {
+    int seen_sum = 0;
+
+    auto tree = yorch::task_tree.root(yorch::bind([]() noexcept -> int {
+            return 4;
+        }))
+        .node<1>(yorch::bind(
+            [&](const int& lhs, const int& rhs) noexcept -> yorch::step_result {
+                seen_sum = lhs + rhs;
+                return yorch::step_result::success();
+            },
+            yorch::borrow_prev<int>(),
+            yorch::borrow_prev<int>()));
+    auto plan = yorch::compile_plan(tree);
+
+    static_assert(can_run_plan<decltype(plan)>);
+
+    const auto result = yorch::run_plan(plan);
+    EXPECT_TRUE(result.ok());
+    EXPECT_EQ(seen_sum, 8);
+}
+
+TEST(ExecutorTest, RunPlanRejectsMixedOrRepeatedExclusivePrevAccessWithinOneTask) {
+    auto invalid_mixed_borrow_tree = yorch::task_tree.root(yorch::bind([]() noexcept -> int {
+            return 1;
+        }))
+        .node<1>(yorch::bind(
+            [](const int&, int&) noexcept -> yorch::step_result {
+                return yorch::step_result::success();
+            },
+            yorch::borrow_prev<int>(),
+            yorch::borrow_prev_mut<int>()));
+    auto invalid_mixed_borrow_plan = yorch::compile_plan(invalid_mixed_borrow_tree);
+
+    auto invalid_double_mut_tree = yorch::task_tree.root(yorch::bind([]() noexcept -> int {
+            return 1;
+        }))
+        .node<1>(yorch::bind(
+            [](int&, int&) noexcept -> yorch::step_result {
+                return yorch::step_result::success();
+            },
+            yorch::borrow_prev_mut<int>(),
+            yorch::borrow_prev_mut<int>()));
+    auto invalid_double_mut_plan = yorch::compile_plan(invalid_double_mut_tree);
+
+    auto invalid_mixed_consume_tree = yorch::task_tree.root(yorch::bind([]() noexcept -> int {
+            return 1;
+        }))
+        .node<1>(yorch::bind(
+            [](int, const int&) noexcept -> yorch::step_result {
+                return yorch::step_result::success();
+            },
+            yorch::consume_prev<int>(),
+            yorch::borrow_prev<int>()));
+    auto invalid_mixed_consume_plan = yorch::compile_plan(invalid_mixed_consume_tree);
+
+    static_assert(!can_run_plan<decltype(invalid_mixed_borrow_plan)>);
+    static_assert(!can_run_plan<decltype(invalid_double_mut_plan)>);
+    static_assert(!can_run_plan<decltype(invalid_mixed_consume_plan)>);
+    SUCCEED();
+}
+
+TEST(ExecutorTest, RunPlanRejectsAnyPrevAccessOnRootNode) {
     auto invalid_root_tree = yorch::task_tree.root(yorch::bind(
         [](const int&) noexcept -> yorch::step_result {
             return yorch::step_result::success();
         },
-        yorch::from_prev<int>()));
+        yorch::borrow_prev<int>()));
     auto invalid_root_plan = yorch::compile_plan(invalid_root_tree);
 
+    auto invalid_root_mut_tree = yorch::task_tree.root(yorch::bind(
+        [](int&) noexcept -> yorch::step_result {
+            return yorch::step_result::success();
+        },
+        yorch::borrow_prev_mut<int>()));
+    auto invalid_root_mut_plan = yorch::compile_plan(invalid_root_mut_tree);
+
+    auto invalid_root_consume_tree = yorch::task_tree.root(yorch::bind(
+        [](int) noexcept -> yorch::step_result {
+            return yorch::step_result::success();
+        },
+        yorch::consume_prev<int>()));
+    auto invalid_root_consume_plan = yorch::compile_plan(invalid_root_consume_tree);
+
     static_assert(!can_run_plan<decltype(invalid_root_plan)>);
+    static_assert(!can_run_plan<decltype(invalid_root_mut_plan)>);
+    static_assert(!can_run_plan<decltype(invalid_root_consume_plan)>);
     SUCCEED();
 }
 
-TEST(ExecutorTest, RunPlanRejectsFromPrevWhenDirectParentOutputIsVoid) {
+TEST(ExecutorTest, RunPlanRejectsAnyPrevAccessWhenDirectParentOutputIsVoid) {
     auto invalid_void_parent_tree = yorch::task_tree.root(yorch::bind([]() noexcept {}))
         .node<1>(yorch::bind(
             [](const int&) noexcept -> yorch::step_result {
                 return yorch::step_result::success();
             },
-            yorch::from_prev<int>()));
+            yorch::borrow_prev<int>()));
     auto invalid_void_parent_plan = yorch::compile_plan(invalid_void_parent_tree);
 
+    auto invalid_void_parent_mut_tree = yorch::task_tree.root(yorch::bind([]() noexcept {}))
+        .node<1>(yorch::bind(
+            [](int&) noexcept -> yorch::step_result {
+                return yorch::step_result::success();
+            },
+            yorch::borrow_prev_mut<int>()));
+    auto invalid_void_parent_mut_plan = yorch::compile_plan(invalid_void_parent_mut_tree);
+
+    auto invalid_void_parent_consume_tree = yorch::task_tree.root(yorch::bind([]() noexcept {}))
+        .node<1>(yorch::bind(
+            [](int) noexcept -> yorch::step_result {
+                return yorch::step_result::success();
+            },
+            yorch::consume_prev<int>()));
+    auto invalid_void_parent_consume_plan = yorch::compile_plan(invalid_void_parent_consume_tree);
+
     static_assert(!can_run_plan<decltype(invalid_void_parent_plan)>);
+    static_assert(!can_run_plan<decltype(invalid_void_parent_mut_plan)>);
+    static_assert(!can_run_plan<decltype(invalid_void_parent_consume_plan)>);
+    SUCCEED();
+}
+
+TEST(ExecutorTest, RunPlanRejectsConsumePrevInsideRetryAdapter) {
+    auto invalid_retry_tree = yorch::task_tree.root(yorch::bind([]() noexcept -> int {
+            return 1;
+        }))
+        .node<1>(yorch::with_retry(
+            yorch::bind(
+                [](int value) noexcept -> yorch::step_result {
+                    return value > 0
+                        ? yorch::step_result::success()
+                        : yorch::step_result::failure();
+                },
+                yorch::consume_prev<int>()),
+            yorch::retry_fixed_policy {1}));
+    auto invalid_retry_plan = yorch::compile_plan(invalid_retry_tree);
+
+    static_assert(!can_run_plan<decltype(invalid_retry_plan)>);
     SUCCEED();
 }

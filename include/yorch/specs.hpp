@@ -19,16 +19,41 @@ struct from_ctx_t {
 };
 
 /**
- * @brief Describes a parameter sourced from the direct parent output slot.
+ * @brief Describes a parameter that borrows the direct parent output as
+ * `const T&`.
  *
- * This spec is intentionally narrower than a generic upstream lookup. In the
- * current design, `from_prev<T>()` means "read the current node's
- * direct parent output" and nothing else.
+ * This spec models shared readonly access to the direct parent payload.
  *
  * @tparam T Requested parent payload type after cv-ref normalization.
  */
 template <typename T>
-struct from_prev_t {
+struct borrow_prev_t {
+    /// Canonical parent payload type used for lookup.
+    using type = std::remove_cvref_t<T>;
+};
+
+/**
+ * @brief Describes a parameter that borrows the direct parent output as `T&`.
+ *
+ * This spec models exclusive mutable access to the direct parent payload.
+ *
+ * @tparam T Requested parent payload type after cv-ref normalization.
+ */
+template <typename T>
+struct borrow_prev_mut_t {
+    /// Canonical parent payload type used for lookup.
+    using type = std::remove_cvref_t<T>;
+};
+
+/**
+ * @brief Describes a parameter that consumes the direct parent output.
+ *
+ * This spec models one-shot ownership transfer from the direct parent payload.
+ *
+ * @tparam T Requested parent payload type after cv-ref normalization.
+ */
+template <typename T>
+struct consume_prev_t {
     /// Canonical parent payload type used for lookup.
     using type = std::remove_cvref_t<T>;
 };
@@ -69,19 +94,44 @@ template <typename T>
 }
 
 /**
- * @brief Creates a spec that asks execution to fetch `T` from the direct
- * parent output slot.
+ * @brief Creates a spec that borrows `T` from the direct parent output slot
+ * as `const T&`.
  *
  * The returned object only records the requested payload type. Actual access
  * happens later during resolution against the current execution's parent slot
  * view.
  *
  * @tparam T Parent payload type to request.
- * @return A `from_prev_t` carrying the normalized lookup type.
+ * @return A `borrow_prev_t` carrying the normalized lookup type.
  */
 template <typename T>
-[[nodiscard]] constexpr auto from_prev() noexcept
-    -> from_prev_t<std::remove_cvref_t<T>> {
+[[nodiscard]] constexpr auto borrow_prev() noexcept
+    -> borrow_prev_t<std::remove_cvref_t<T>> {
+    return {};
+}
+
+/**
+ * @brief Creates a spec that borrows `T` from the direct parent output slot as
+ * `T&`.
+ *
+ * @tparam T Parent payload type to request.
+ * @return A `borrow_prev_mut_t` carrying the normalized lookup type.
+ */
+template <typename T>
+[[nodiscard]] constexpr auto borrow_prev_mut() noexcept
+    -> borrow_prev_mut_t<std::remove_cvref_t<T>> {
+    return {};
+}
+
+/**
+ * @brief Creates a spec that consumes `T` from the direct parent output slot.
+ *
+ * @tparam T Parent payload type to request.
+ * @return A `consume_prev_t` carrying the normalized lookup type.
+ */
+template <typename T>
+[[nodiscard]] constexpr auto consume_prev() noexcept
+    -> consume_prev_t<std::remove_cvref_t<T>> {
     return {};
 }
 

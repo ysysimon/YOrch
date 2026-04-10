@@ -178,13 +178,13 @@ TEST(TaskTreeTest, RootBindAndNodeBindBuildRunnablePlan) {
                 seen_root = value;
                 return yorch::task_result<std::string>::success(std::to_string(value * 2));
             },
-            yorch::from_prev<int>())
+            yorch::borrow_prev<int>())
         .node_bind<2>(
             [&](const std::string& value) noexcept -> yorch::step_result {
                 seen_child = value;
                 return yorch::step_result::success();
             },
-            yorch::from_prev<std::string>());
+            yorch::borrow_prev<std::string>());
 
     auto plan = yorch::compile_plan(tree);
     const auto result = yorch::run_plan(plan);
@@ -209,13 +209,13 @@ TEST(TaskTreeTest, RootBindIntoAndNodeBindIntoBuildRunnablePlan) {
                 seen_root = std::stoi(value);
                 return out.success(seen_root * 2);
             },
-            yorch::from_prev<std::string>())
+            yorch::borrow_prev<std::string>())
         .node_bind<2>(
             [&](const int& value) noexcept -> yorch::step_result {
                 seen_child = value;
                 return yorch::step_result::success();
             },
-            yorch::from_prev<int>());
+            yorch::borrow_prev<int>());
 
     auto plan = yorch::compile_plan(tree);
     const auto result = yorch::run_plan(plan);
@@ -261,7 +261,7 @@ TEST(TaskTreeTest, NodeCatchAsFailureWrapsBoundTaskWithCustomPolicy) {
             [](const int&) -> yorch::task_result<int> {
                 throw std::runtime_error("boom");
             },
-            yorch::from_prev<int>());
+            yorch::borrow_prev<int>());
 
     auto plan = yorch::compile_plan(tree);
     const auto result = yorch::run_plan(plan);
@@ -282,7 +282,7 @@ TEST(TaskTreeTest, NodeCatchAsFailureIntoWrapsDirectOutputTaskWithCustomPolicy) 
             [](const int&, yorch::result_out<std::string>) -> yorch::step_result {
                 throw std::runtime_error("boom");
             },
-            yorch::from_prev<int>());
+            yorch::borrow_prev<int>());
 
     int parent_value = 5;
     yorch::exec_context<void, decltype(yorch::prev_slot(parent_value))> exec {
@@ -338,7 +338,7 @@ TEST(TaskTreeTest, RootWithRetryIntoWrapsDirectOutputTask) {
                 seen_value = value;
                 return yorch::step_result::success();
             },
-            yorch::from_prev<int>());
+            yorch::borrow_prev<int>());
     auto plan = yorch::compile_plan(tree);
 
     const auto result = yorch::run_plan(plan);
@@ -357,13 +357,13 @@ TEST(TaskTreeTest, NodeWithRetryWrapsBoundTask) {
         })
         .node_with_retry<1>(
             yorch::retry_fixed_policy {2},
-            [&](int value) noexcept -> yorch::step_result {
+            [&](const int& value) noexcept -> yorch::step_result {
                 ++attempts;
                 return attempts < value
                     ? yorch::step_result::retry()
                     : yorch::step_result::success();
             },
-            yorch::from_prev<int>());
+            yorch::borrow_prev<int>());
     auto plan = yorch::compile_plan(tree);
 
     const auto result = yorch::run_plan(plan);
@@ -392,13 +392,13 @@ TEST(TaskTreeTest, NodeWithRetryIntoWrapsDirectOutputTask) {
 
                 return out.success(std::to_string(value * 2));
             },
-            yorch::from_prev<int>())
+            yorch::borrow_prev<int>())
         .node_bind<2>(
             [&](const std::string& value) noexcept -> yorch::step_result {
                 seen_value = std::stoi(value);
                 return yorch::step_result::success();
             },
-            yorch::from_prev<std::string>());
+            yorch::borrow_prev<std::string>());
     auto plan = yorch::compile_plan(tree);
 
     const auto result = yorch::run_plan(plan);

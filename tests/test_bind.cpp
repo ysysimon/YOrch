@@ -6,6 +6,7 @@
 #include <string>
 #include <tuple>
 #include <type_traits>
+#include <utility>
 
 namespace {
 
@@ -172,7 +173,7 @@ TEST(BindTest, BoundTaskCanResolveFromDirectParentSlot) {
             value += 3;
             return yorch::step_result::success();
         },
-        yorch::from_prev<int>());
+        yorch::borrow_prev_mut<int>());
 
     const auto result = task.invoke_raw(exec);
 
@@ -221,6 +222,26 @@ TEST(BindTest, BoundOutputTaskResolvesSpecsAndWritesToOutputSink) {
     EXPECT_TRUE(slot.has_value());
     EXPECT_EQ(slot.get(), "14");
     EXPECT_EQ(ctx.get<int>(), 7);
+}
+
+TEST(BindTest, BoundOutputTaskCanConsumeParentPayloadAndForwardItToOutput) {
+    std::string parent_value = "root";
+    yorch::exec_context<void, decltype(yorch::prev_slot(parent_value))> exec {
+        yorch::prev_slot(parent_value)};
+
+    auto task = yorch::bind_into<std::string>(
+        [](std::string&& value, yorch::result_out<std::string> out) noexcept -> yorch::step_result {
+            value += "-child";
+            return out.success(std::move(value));
+        },
+        yorch::consume_prev<std::string>());
+
+    yorch::detail::typed_slot<std::string> slot;
+    const auto result = task.invoke_into(exec, yorch::result_out<std::string> {slot});
+
+    EXPECT_TRUE(result.ok());
+    EXPECT_TRUE(slot.has_value());
+    EXPECT_EQ(slot.get(), "root-child");
 }
 
 TEST(BindTest, BoundOutputTaskNormalizesVoidCallableReturnToSuccess) {

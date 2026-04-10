@@ -283,16 +283,14 @@ TEST(SlotsTest, PlanSlotsPrevViewForReturnsDirectParentViewOrNoPrev) {
     auto prev = slots.prev_view_for<0>();
     yorch::exec_context<void, decltype(prev)> exec {prev};
 
-    auto&& resolved_ref = yorch::resolve_as<int&>(yorch::from_prev<int>(), exec);
-    auto copied = yorch::resolve_as<long>(yorch::from_prev<int>(), exec);
+    auto&& resolved_ref = yorch::resolve_as<int&>(yorch::borrow_prev_mut<int>(), exec);
 
     EXPECT_EQ(&resolved_ref, &parent);
-    EXPECT_EQ(copied, 7);
 
     const auto& const_slots = slots;
     auto const_prev = const_slots.prev_view_for<0>();
     yorch::exec_context<void, decltype(const_prev)> const_exec {const_prev};
-    auto&& const_ref = yorch::resolve_as<const int&>(yorch::from_prev<int>(), const_exec);
+    auto&& const_ref = yorch::resolve_as<const int&>(yorch::borrow_prev<int>(), const_exec);
 
     EXPECT_EQ(&const_ref, &parent);
 
