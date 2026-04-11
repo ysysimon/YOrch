@@ -46,6 +46,19 @@ struct borrow_prev_mut_t {
 };
 
 /**
+ * @brief Describes a parameter that copies the direct parent output as `T`.
+ *
+ * This spec models readonly copy access to the direct parent payload.
+ *
+ * @tparam T Requested parent payload type after cv-ref normalization.
+ */
+template <typename T>
+struct copy_prev_t {
+    /// Canonical parent payload type used for lookup.
+    using type = std::remove_cvref_t<T>;
+};
+
+/**
  * @brief Describes a parameter that consumes the direct parent output.
  *
  * This spec models one-shot ownership transfer from the direct parent payload.
@@ -120,6 +133,23 @@ template <typename T>
 template <typename T>
 [[nodiscard]] constexpr auto borrow_prev_mut() noexcept
     -> borrow_prev_mut_t<std::remove_cvref_t<T>> {
+    return {};
+}
+
+/**
+ * @brief Creates a spec that copies `T` from the direct parent output slot as
+ * a new value.
+ *
+ * The returned object only records the requested payload type. Actual access
+ * happens later during resolution against the current execution's parent slot
+ * view.
+ *
+ * @tparam T Parent payload type to request.
+ * @return A `copy_prev_t` carrying the normalized lookup type.
+ */
+template <typename T>
+[[nodiscard]] constexpr auto copy_prev() noexcept
+    -> copy_prev_t<std::remove_cvref_t<T>> {
     return {};
 }
 

@@ -244,6 +244,26 @@ TEST(BindTest, BoundOutputTaskCanConsumeParentPayloadAndForwardItToOutput) {
     EXPECT_EQ(slot.get(), "root-child");
 }
 
+TEST(BindTest, BoundTaskCanCopyParentPayloadWithoutMutatingSource) {
+    std::string parent_value = "root";
+    yorch::exec_context<void, decltype(yorch::prev_slot(parent_value))> exec {
+        yorch::prev_slot(parent_value)};
+
+    auto task = yorch::bind(
+        // NOLINTNEXTLINE(performance-unnecessary-value-param)
+        [](std::string value) noexcept -> yorch::step_result {
+            return value == "root"
+                ? yorch::step_result::success()
+                : yorch::step_result::failure();
+        },
+        yorch::copy_prev<std::string>());
+
+    const auto result = task.invoke_raw(exec);
+
+    EXPECT_TRUE(result.ok());
+    EXPECT_EQ(parent_value, "root");
+}
+
 TEST(BindTest, BoundOutputTaskNormalizesVoidCallableReturnToSuccess) {
     yorch::exec_context<void> exec;
 

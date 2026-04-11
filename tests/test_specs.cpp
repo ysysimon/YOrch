@@ -61,6 +61,18 @@ TEST(SpecsTest, BorrowPrevMutNormalizesCvrefTypes) {
     EXPECT_TRUE((std::is_empty_v<decltype(string_spec)>));
 }
 
+TEST(SpecsTest, CopyPrevNormalizesCvrefTypes) {
+    constexpr auto int_spec = yorch::copy_prev<const int&>();
+    constexpr auto string_spec = yorch::copy_prev<volatile std::string&&>();
+
+    static_assert(std::is_same_v<decltype(int_spec), const yorch::copy_prev_t<int>>);
+    static_assert(std::is_same_v<typename decltype(int_spec)::type, int>);
+    static_assert(std::is_same_v<typename decltype(string_spec)::type, std::string>);
+
+    EXPECT_TRUE((std::is_empty_v<decltype(int_spec)>));
+    EXPECT_TRUE((std::is_empty_v<decltype(string_spec)>));
+}
+
 TEST(SpecsTest, ConsumePrevNormalizesCvrefTypes) {
     constexpr auto int_spec = yorch::consume_prev<const int&>();
     constexpr auto string_spec = yorch::consume_prev<volatile std::string&&>();

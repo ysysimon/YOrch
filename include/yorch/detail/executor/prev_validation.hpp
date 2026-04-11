@@ -33,6 +33,16 @@ inline constexpr bool is_borrow_prev_mut_spec_v =
     is_borrow_prev_mut_spec<std::remove_cvref_t<Spec>>::value;
 
 template <typename Spec>
+struct is_copy_prev_spec : std::false_type {};
+
+template <typename T>
+struct is_copy_prev_spec<copy_prev_t<T>> : std::true_type {};
+
+template <typename Spec>
+inline constexpr bool is_copy_prev_spec_v =
+    is_copy_prev_spec<std::remove_cvref_t<Spec>>::value;
+
+template <typename Spec>
 struct is_consume_prev_spec : std::false_type {};
 
 template <typename T>
@@ -46,6 +56,7 @@ template <typename Spec>
 inline constexpr bool is_prev_access_spec_v =
     is_borrow_prev_spec_v<Spec> ||
     is_borrow_prev_mut_spec_v<Spec> ||
+    is_copy_prev_spec_v<Spec> ||
     is_consume_prev_spec_v<Spec>;
 
 template <typename Spec>
@@ -63,6 +74,10 @@ struct prev_access_binding_valid<borrow_prev_t<T>, Arg>
 template <typename T, typename Arg>
 struct prev_access_binding_valid<borrow_prev_mut_t<T>, Arg>
     : std::bool_constant<std::is_same_v<Arg, typename borrow_prev_mut_t<T>::type&>> {};
+
+template <typename T, typename Arg>
+struct prev_access_binding_valid<copy_prev_t<T>, Arg>
+    : std::bool_constant<std::is_same_v<Arg, typename copy_prev_t<T>::type>> {};
 
 template <typename T, typename Arg>
 struct prev_access_binding_valid<consume_prev_t<T>, Arg>
@@ -131,17 +146,18 @@ struct task_uses_consume_prev : std::false_type {};
  *   according to its declared mode:
  *   - `borrow_prev<T>()` -> `const T&`
  *   - `borrow_prev_mut<T>()` -> `T&`
+ *   - `copy_prev<T>()` -> `T`
  *   - `consume_prev<T>()` -> `T` or `T&&`
- * - `borrow_prev(...)` may appear multiple times because it is readonly shared
- *   access to the same direct parent source
+ * - `borrow_prev(...)` and `copy_prev(...)` may appear multiple times because
+ *   they are shared access modes over the same direct parent source
  * - any exclusive access (`borrow_prev_mut(...)` or `consume_prev(...)`) must
  *   be the task's only prev-access declaration
  *
  * That exclusivity rule is what the local `prev_access_count /
  * exclusive_prev_access_count` calculation enforces below:
  *
- * - `exclusive_prev_access_count == 0` means the task uses only
- *   `borrow_prev(...)`, which may repeat
+ * - `exclusive_prev_access_count == 0` means the task uses only shared access
+ *   (`borrow_prev(...)` and/or `copy_prev(...)`), which may repeat or mix
  * - `exclusive_prev_access_count == 1 && prev_access_count == 1` means there
  *   is exactly one exclusive access spec, and it is also the task's only
  *   prev-access spec
@@ -151,8 +167,10 @@ struct task_uses_consume_prev : std::false_type {};
  * - multiple `borrow_prev_mut(...)` specs in the same task
  * - multiple `consume_prev(...)` specs in the same task
  * - mixing `borrow_prev_mut(...)` with `borrow_prev(...)`
+ * - mixing `borrow_prev_mut(...)` with `copy_prev(...)`
  * - mixing `borrow_prev_mut(...)` with `consume_prev(...)`
  * - mixing `consume_prev(...)` with `borrow_prev(...)`
+ * - mixing `consume_prev(...)` with `copy_prev(...)`
  *
  * This keeps exclusive access unambiguous and avoids depending on function
  * argument evaluation order when one parameter would request unique mutable or
@@ -348,9 +366,10 @@ template <typename Plan, std::size_t I>
  *
  * This first reuses the task-local validation (`task_prev_access_valid_v`) and
  * then applies the current structural exclusivity rule: when a direct parent
- * has multiple children, only shared readonly `borrow_prev(...)` access is
- * allowed; exclusive access (`borrow_prev_mut(...)` / `consume_prev(...)`) is
- * only valid for single-child paths.
+ * has multiple children, only shared non-exclusive access
+ * (`borrow_prev(...)` / `copy_prev(...)`) is allowed; exclusive access
+ * (`borrow_prev_mut(...)` / `consume_prev(...)`) is only valid for
+ * single-child paths.
  */
 template <typename Plan, std::size_t I>
     requires prev_access_validatable_plan_node<Plan, I>

@@ -35,6 +35,9 @@ template <typename T>
 using borrow_prev_mut_source_t = typename borrow_prev_mut_t<T>::type;
 
 template <typename T>
+using copy_prev_source_t = typename copy_prev_t<T>::type;
+
+template <typename T>
 using consume_prev_source_t = typename consume_prev_t<T>::type;
 
 template <typename Ctx, typename T>
@@ -57,6 +60,13 @@ inline constexpr bool resolve_borrow_prev_nothrow_v =
 template <typename Arg, typename T, typename Prev>
 inline constexpr bool resolve_borrow_prev_mut_nothrow_v =
     prev_get_source_nothrow_v<Prev, borrow_prev_mut_source_t<T>>;
+
+template <typename T, typename Prev>
+inline constexpr bool resolve_copy_prev_nothrow_v =
+    prev_get_source_nothrow_v<Prev, copy_prev_source_t<T>> &&
+    std::is_nothrow_constructible_v<
+        std::remove_cvref_t<copy_prev_source_t<T>>,
+        const std::remove_cvref_t<copy_prev_source_t<T>>&>;
 
 template <typename Arg, typename T>
 inline constexpr bool consume_bind_nothrow_v =
@@ -243,6 +253,30 @@ constexpr decltype(auto) resolve_as(borrow_prev_mut_t<T>, exec_context<Ctx, Prev
 
     auto& src = ec.prev_view().template get<source_t>();
     return static_cast<source_t&>(src);
+}
+
+/**
+ * @brief Resolves a `copy_prev(...)` spec by copying the direct parent output
+ * payload into a new value.
+ *
+ * This access mode is intentionally strict: the target argument must be the
+ * exact type `T`.
+ */
+template <typename Arg, typename T, typename Ctx, typename Prev>
+constexpr decltype(auto) resolve_as(copy_prev_t<T>, exec_context<Ctx, Prev>& ec)
+    noexcept(detail::resolve_copy_prev_nothrow_v<T, Prev>) {
+    using source_t = typename copy_prev_t<T>::type;
+    using prev_t = std::remove_cvref_t<decltype(ec.prev_view())>;
+
+    static_assert(std::is_same_v<Arg, source_t>,
+                  "copy_prev<T>() only binds to T");
+    static_assert(prev_t::template contains<source_t>(),
+                  "copy_prev<T>() requires a direct parent slot carrying the requested type");
+    static_assert(std::is_constructible_v<source_t, const source_t&>,
+                  "copy_prev<T>() requires T to be constructible from const T&");
+
+    auto& src = ec.prev_view().template get<source_t>();
+    return static_cast<source_t>(static_cast<const source_t&>(src));
 }
 
 /**

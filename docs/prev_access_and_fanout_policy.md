@@ -20,7 +20,7 @@
 
 ## Public API
 
-旧的 `from_prev<T>()` 已经移除，当前 public API 只有三种 direct-parent access spec：
+旧的 `from_prev<T>()` 已经移除，当前 public API 有四种 direct-parent access spec：
 
 ### `borrow_prev<T>()`
 
@@ -46,6 +46,19 @@
 
 - 只能绑定到 `T&`
 
+### `copy_prev<T>()`
+
+含义：
+
+- 从 direct parent payload 复制出一个新的 `T` 值
+- shared non-exclusive access
+- 不消费 source
+- 不修改 source
+
+绑定规则：
+
+- 只能绑定到 `T`
+
 ### `consume_prev<T>()`
 
 含义：
@@ -67,11 +80,12 @@
 
 ## Spec 归一化
 
-三种 spec 都会先对模板参数做 `cvref` 归一化，只保留基础类型：
+四种 spec 都会先对模板参数做 `cvref` 归一化，只保留基础类型：
 
 ```cpp
 borrow_prev<const int&>()          -> borrow_prev_t<int>
 borrow_prev_mut<const int&>()      -> borrow_prev_mut_t<int>
+copy_prev<const int&>()            -> copy_prev_t<int>
 consume_prev<volatile std::string&&>() -> consume_prev_t<std::string>
 ```
 
@@ -85,23 +99,30 @@ consume_prev<volatile std::string&&>() -> consume_prev_t<std::string>
 
 - `borrow_prev<T>()` -> `const T&`
 - `borrow_prev_mut<T>()` -> `T&`
+- `copy_prev<T>()` -> `T`
 - `consume_prev<T>()` -> `T` 或 `T&&`
 
 如果参数类型不匹配，`run_plan(...)` 会在 compile time 拒绝这个 plan。
 
-### 2. `borrow_prev(...)` 可以重复出现
+### 2. shared access 可以重复出现或混用
 
-这是因为它表示 shared readonly access，同一个 direct parent source 在一个 task 内被读多次是允许的。
+`borrow_prev(...)` 和 `copy_prev(...)` 都属于 shared non-exclusive access。
+
+因此在一个 task 内：
+
+- 多个 `borrow_prev(...)` 合法
+- 多个 `copy_prev(...)` 合法
+- `borrow_prev(...) + copy_prev(...)` 合法
 
 例如：
 
 ```cpp
 yorch::bind(
-    [](const int& a, const int& b) noexcept -> yorch::step_result {
+    [](const int& a, int b) noexcept -> yorch::step_result {
         return yorch::step_result::success();
     },
     yorch::borrow_prev<int>(),
-    yorch::borrow_prev<int>())
+    yorch::copy_prev<int>())
 ```
 
 ### 3. exclusive access 必须唯一
@@ -113,8 +134,10 @@ yorch::bind(
 - 多个 `borrow_prev_mut(...)`
 - 多个 `consume_prev(...)`
 - `borrow_prev_mut(...) + borrow_prev(...)`
+- `borrow_prev_mut(...) + copy_prev(...)`
 - `borrow_prev_mut(...) + consume_prev(...)`
 - `consume_prev(...) + borrow_prev(...)`
+- `consume_prev(...) + copy_prev(...)`
 
 这样做的目的，是避免对同一个 direct parent source 同时声明 shared access 和 exclusive access，也避免依赖函数参数求值顺序。
 
@@ -133,6 +156,7 @@ yorch::bind(
 
 - `borrow_prev(...)` 可以用于 retry task
 - `borrow_prev_mut(...)` 可以用于 retry task
+- `copy_prev(...)` 可以用于 retry task
 - `consume_prev(...)` 不可以用于 retry task
 
 ## Plan 结构规则
@@ -147,7 +171,7 @@ yorch::bind(
 
 因为虽然有 parent 节点，但它没有可读的 payload。
 
-### 3. 多 child fanout 下只允许 `borrow_prev(...)`
+### 3. 多 child fanout 下只允许 shared non-exclusive access
 
 当前没有显式 `fanout policy`，所以用 direct child 数量近似表达 fanout 约束：
 
@@ -161,9 +185,11 @@ yorch::bind(
 - 单 child 路径下：
   - `borrow_prev(...)` 合法
   - `borrow_prev_mut(...)` 合法
+  - `copy_prev(...)` 合法
   - `consume_prev(...)` 合法
 - 多 child 路径下：
   - `borrow_prev(...)` 合法
+  - `copy_prev(...)` 合法
   - `borrow_prev_mut(...)` 非法
   - `consume_prev(...)` 非法
 
@@ -175,6 +201,8 @@ yorch::bind(
   shared readonly access，可重复，可用于 fanout
 - `borrow_prev_mut(...)`
   exclusive mutable access，只允许单 child 路径，且 task 内唯一
+- `copy_prev(...)`
+  shared copy access，可重复，可用于 fanout，也可用于 retry
 - `consume_prev(...)`
   exclusive consuming access，只允许单 child 路径，且 task 内唯一，并禁止与 retry 组合
 
