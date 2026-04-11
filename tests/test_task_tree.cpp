@@ -23,10 +23,26 @@ concept can_append_noop =
         std::forward<TaskTree>(task_tree).template node<Level>(make_noop_task());
     };
 
+template <typename TaskTree, std::size_t Level>
+concept can_append_noop_with_fanout =
+    requires(TaskTree&& task_tree) {
+        std::forward<TaskTree>(task_tree).template node<Level>(
+            make_noop_task(),
+            yorch::fanout_shared_readonly_policy {});
+    };
+
 template <typename TaskTree>
 concept can_append_root =
     requires(TaskTree&& task_tree) {
         std::forward<TaskTree>(task_tree).root(make_noop_task());
+    };
+
+template <typename TaskTree>
+concept can_append_root_with_fanout =
+    requires(TaskTree&& task_tree) {
+        std::forward<TaskTree>(task_tree).root(
+            make_noop_task(),
+            yorch::fanout_shared_readonly_policy {});
     };
 
 template <typename TaskTree>
@@ -86,6 +102,27 @@ TEST(TaskTreeTest, RootBuilderCapturesCompileTimeLevelSequence) {
     EXPECT_EQ(task_tree_t::max_level, 2);
 }
 
+TEST(TaskTreeTest, BuilderCapturesFanoutPolicyMetadata) {
+    auto s = yorch::task_tree
+        .root(make_noop_task(), yorch::fanout_shared_readonly_policy {})
+        .node<1>(make_noop_task())
+        .node<1>(make_noop_task(), yorch::fanout_consume_with_copies_policy {});
+
+    using task_tree_t = decltype(s);
+
+    static_assert(std::is_same_v<
+                  task_tree_t::template node_type<0>::fanout_policy_type,
+                  yorch::fanout_shared_readonly_policy>);
+    static_assert(std::is_same_v<
+                  task_tree_t::template node_type<1>::fanout_policy_type,
+                  yorch::fanout_auto_policy>);
+    static_assert(std::is_same_v<
+                  task_tree_t::template node_type<2>::fanout_policy_type,
+                  yorch::fanout_consume_with_copies_policy>);
+
+    SUCCEED();
+}
+
 TEST(TaskTreeTest, RootBuilderPreservesMoveOnlyTaskStorageAcrossRvalueChaining) {
     auto s = yorch::task_tree.root(yorch::bind(
             [](const std::unique_ptr<int>& value) noexcept -> int {
@@ -131,6 +168,8 @@ TEST(TaskTreeTest, RootBuilderRejectsInvalidLevelTransitions) {
 
     static_assert(can_append_root<decltype(yorch::task_tree)>,
                   "empty task_tree should allow appending a root node");
+    static_assert(can_append_root_with_fanout<decltype(yorch::task_tree)>,
+                  "empty task_tree should allow appending a root node with fanout policy");
     static_assert(can_append_root_bind_into<decltype(yorch::task_tree)>,
                   "empty task_tree should allow root_bind_into(...) sugar");
     static_assert(!can_append_root_bind_into_without_output<decltype(yorch::task_tree)>,
@@ -141,12 +180,16 @@ TEST(TaskTreeTest, RootBuilderRejectsInvalidLevelTransitions) {
                   "task_tree should reject adding a second root after the first node");
     static_assert(can_append_noop<decltype(yorch::task_tree), 0>,
                   "empty task_tree should still admit node<0>(...) as the root-equivalent entry");
+    static_assert(can_append_noop_with_fanout<decltype(yorch::task_tree), 0>,
+                  "empty task_tree should admit node<0>(..., fanout_policy) as the root-equivalent entry");
     static_assert(!can_append_noop<decltype(yorch::task_tree), 1>,
                   "empty task_tree should reject node<1>(...) because a root must come first");
     static_assert(!can_append_noop<root_task_tree_t&, 0>,
                   "non-empty task_tree should reject another node<0>(...) root");
     static_assert(can_append_noop<root_task_tree_t&, 1>,
                   "root task_tree should allow descending one level to node<1>(...)");
+    static_assert(can_append_noop_with_fanout<root_task_tree_t&, 1>,
+                  "root task_tree should allow descending one level to node<1>(..., fanout_policy)");
     static_assert(!can_append_noop<root_task_tree_t&, 2>,
                   "root task_tree should reject skipping directly from level 0 to level 2");
     static_assert(!can_append_node_bind_into<decltype(yorch::task_tree), 1>,

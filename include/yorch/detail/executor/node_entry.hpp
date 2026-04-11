@@ -7,6 +7,7 @@
 #include "../../context.hpp"
 #include "../../executor/concepts.hpp" // IWYU pragma: keep
 #include "../../result.hpp"
+#include "fanout.hpp"
 #include "result.hpp"
 
 namespace yorch::detail {
@@ -43,8 +44,8 @@ template <typename Prev>
     return {prev};
 }
 
-template <typename Plan, std::size_t I, typename Slots>
-[[nodiscard]] constexpr auto make_node_prev_view(Slots& slots) {
+template <typename Plan, std::size_t I, typename Slots, typename FanoutState>
+[[nodiscard]] constexpr auto make_node_prev_view(Slots& slots, FanoutState& fanout) {
     if constexpr (Plan::template parent_index<I> == Plan::no_parent) {
         return no_prev {};
     } else {
@@ -52,17 +53,23 @@ template <typename Plan, std::size_t I, typename Slots>
 
         if constexpr (std::is_void_v<typename Plan::template output_type<parent>>) {
             return no_prev {};
-        } else if constexpr (Plan::template child_count<parent> > 1) {
-            return std::as_const(slots).template prev_view_for<parent>();
-        } else {
+        } else if constexpr (node_uses_staged_copy_prev_v<Plan, I>) {
+            // The shared stage is still a readonly upstream source. `copy_prev(...)`
+            // resolves an owned value from it without granting mutable prev access.
+            return std::as_const(fanout).template staged_prev_view_for_parent<parent>();
+        } else if constexpr (task_uses_exclusive_prev_access_v<typename Plan::template task_type<I>>) {
             return slots.template prev_view_for<parent>();
+        } else {
+            return std::as_const(slots).template prev_view_for<parent>();
         }
     }
 }
 
 template <typename Plan, typename Slots, std::size_t I>
 using node_prev_view_t =
-    decltype(make_node_prev_view<Plan, I>(std::declval<Slots&>()));
+    decltype(make_node_prev_view<Plan, I>(
+        std::declval<Slots&>(),
+        std::declval<plan_fanout_state<Plan>&>()));
 
 struct node_enter_result {
     step_result step = step_result::success();
@@ -115,15 +122,22 @@ template <std::size_t I, typename Plan, typename Slots, typename Ec>
 }
 
 template <std::size_t I, typename Plan, typename Slots>
-[[nodiscard]] constexpr node_enter_result enter_node(Plan& plan, Slots& slots) {
-    auto prev = make_node_prev_view<Plan, I>(slots);
+[[nodiscard]] constexpr node_enter_result enter_node(
+    Plan& plan,
+    Slots& slots,
+    plan_fanout_state<Plan>& fanout) {
+    auto prev = make_node_prev_view<Plan, I>(slots, fanout);
     auto ec = make_exec_context(prev);
     return enter_node_with_exec_context<I>(plan, slots, ec);
 }
 
 template <std::size_t I, typename Plan, typename Slots, typename Ctx>
-[[nodiscard]] constexpr node_enter_result enter_node(Plan& plan, Slots& slots, Ctx& ctx) {
-    auto prev = make_node_prev_view<Plan, I>(slots);
+[[nodiscard]] constexpr node_enter_result enter_node(
+    Plan& plan,
+    Slots& slots,
+    plan_fanout_state<Plan>& fanout,
+    Ctx& ctx) {
+    auto prev = make_node_prev_view<Plan, I>(slots, fanout);
     auto ec = make_exec_context(ctx, prev);
     return enter_node_with_exec_context<I>(plan, slots, ec);
 }

@@ -5,7 +5,7 @@
 #include <utility>
 
 #include "../detail/task_tree/concepts.hpp" // IWYU pragma: keep
-#include "../detail/task_tree/meta.hpp"
+#include "../detail/task_tree/metadata.hpp"
 
 namespace yorch {
 
@@ -41,11 +41,29 @@ struct task_tree_builder {
         return node<0>(std::forward<Task>(task));
     }
 
+    template <typename Task, typename FanoutPolicy>
+        requires (sizeof...(Nodes) == 0) &&
+                 detail::fanout_policy<FanoutPolicy>
+    [[nodiscard]] constexpr auto root(Task&& task, FanoutPolicy&& fanout_policy) const& {
+        return node<0>(
+            std::forward<Task>(task),
+            std::forward<FanoutPolicy>(fanout_policy));
+    }
+
     /// Appends the unique root node onto an empty builder, moving prior state.
     template <typename Task>
         requires (sizeof...(Nodes) == 0)
     [[nodiscard]] constexpr auto root(Task&& task) && {
         return std::move(*this).template node<0>(std::forward<Task>(task));
+    }
+
+    template <typename Task, typename FanoutPolicy>
+        requires (sizeof...(Nodes) == 0) &&
+                 detail::fanout_policy<FanoutPolicy>
+    [[nodiscard]] constexpr auto root(Task&& task, FanoutPolicy&& fanout_policy) && {
+        return std::move(*this).template node<0>(
+            std::forward<Task>(task),
+            std::forward<FanoutPolicy>(fanout_policy));
     }
 
     /// Convenience syntax for `root(yorch::bind(f, specs...))`.
@@ -257,6 +275,23 @@ struct task_tree_builder {
         };
     }
 
+    template <std::size_t Level, typename Task, typename FanoutPolicy>
+        requires (detail::append_level_valid_v<Level, Nodes...>) &&
+                 detail::fanout_policy<FanoutPolicy>
+                 // NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
+    [[nodiscard]] constexpr auto node(Task&& task, FanoutPolicy&& fanout_policy) const& {
+        static_cast<void>(fanout_policy);
+        using next_node_t = detail::task_tree_node_t<Level, Task, FanoutPolicy>;
+
+        return task_tree_builder<Nodes..., next_node_t> {
+            std::tuple_cat(
+                nodes,
+                std::tuple<next_node_t> {
+                    next_node_t {std::forward<Task>(task)}
+                })
+        };
+    }
+
     /**
      * @brief Appends a node onto an rvalue builder, moving existing nodes.
      *
@@ -272,6 +307,23 @@ struct task_tree_builder {
         requires (detail::append_level_valid_v<Level, Nodes...>)
     [[nodiscard]] constexpr auto node(Task&& task) && {
         using next_node_t = detail::task_tree_node_t<Level, Task>;
+
+        return task_tree_builder<Nodes..., next_node_t> {
+            std::tuple_cat(
+                std::move(nodes),
+                std::tuple<next_node_t> {
+                    next_node_t {std::forward<Task>(task)}
+                })
+        };
+    }
+
+    template <std::size_t Level, typename Task, typename FanoutPolicy>
+        requires (detail::append_level_valid_v<Level, Nodes...>) &&
+                 detail::fanout_policy<FanoutPolicy>
+                 // NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
+    [[nodiscard]] constexpr auto node(Task&& task, FanoutPolicy&& fanout_policy) && {
+        static_cast<void>(fanout_policy);
+        using next_node_t = detail::task_tree_node_t<Level, Task, FanoutPolicy>;
 
         return task_tree_builder<Nodes..., next_node_t> {
             std::tuple_cat(

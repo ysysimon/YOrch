@@ -34,7 +34,7 @@ struct lifetime_probe {
         ++tracker->live_count;
     }
 
-    lifetime_probe(const lifetime_probe& other)
+    lifetime_probe(const lifetime_probe& other) noexcept
         : tracker(other.tracker),
           value(other.value) {
         ++tracker->live_count;

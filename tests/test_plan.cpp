@@ -30,12 +30,15 @@ struct rawless_task {
 } // namespace
 
 TEST(PlanTest, CompilePlanRecoversParentChildStructureAndOutputMetadata) {
-    auto tree = yorch::task_tree.root(yorch::bind([]() noexcept -> int {
-            return 1;
-        }))
+    auto tree = yorch::task_tree.root(
+            yorch::bind([]() noexcept -> int {
+                return 1;
+            }),
+            yorch::fanout_shared_readonly_policy {})
         .node<1>(yorch::bind([]() noexcept -> yorch::task_result<std::string> {
-            return yorch::task_result<std::string>::success("child");
-        }))
+                return yorch::task_result<std::string>::success("child");
+            }),
+            yorch::fanout_consume_with_copies_policy {})
             .node<2>(yorch::bind([]() noexcept -> yorch::step_result {
                 return yorch::step_result::abort_branch();
             }))
@@ -77,6 +80,15 @@ TEST(PlanTest, CompilePlanRecoversParentChildStructureAndOutputMetadata) {
     static_assert(std::is_same_v<plan_t::template output_type<2>, void>);
     static_assert(std::is_same_v<plan_t::template output_type<3>, void>);
     static_assert(std::is_same_v<plan_t::template output_type<4>, bool>);
+    static_assert(std::is_same_v<
+                  plan_t::template fanout_policy_type<0>,
+                  yorch::fanout_shared_readonly_policy>);
+    static_assert(std::is_same_v<
+                  plan_t::template fanout_policy_type<1>,
+                  yorch::fanout_consume_with_copies_policy>);
+    static_assert(std::is_same_v<
+                  plan_t::template fanout_policy_type<2>,
+                  yorch::fanout_auto_policy>);
     static_assert(plan_t::template slot_logical_policy_for<0> == yorch::detail::slot_logical_policy::must_payload);
     static_assert(plan_t::template slot_logical_policy_for<1> == yorch::detail::slot_logical_policy::maybe_payload);
     static_assert(plan_t::template slot_logical_policy_for<2> == yorch::detail::slot_logical_policy::none);

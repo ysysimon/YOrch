@@ -3,6 +3,8 @@
 #include <cstddef>
 #include <type_traits>
 
+#include "../../task_tree/policies.hpp"
+
 namespace yorch::detail {
 
 template <typename... Nodes>
@@ -49,15 +51,17 @@ inline constexpr bool append_level_valid_v = [] {
     }
 }();
 
-template <std::size_t Level, typename Task>
+template <std::size_t Level, typename Task, typename FanoutPolicy = yorch::fanout_auto_policy>
 struct task_tree_node {
     static constexpr std::size_t level = Level;
     using task_type = Task;
+    using fanout_policy_type = FanoutPolicy;
 
     Task task;
 };
 
-template <std::size_t Level, typename Task>
-using task_tree_node_t = task_tree_node<Level, std::decay_t<Task>>;
+template <std::size_t Level, typename Task, typename FanoutPolicy = yorch::fanout_auto_policy>
+using task_tree_node_t =
+    task_tree_node<Level, std::decay_t<Task>, std::remove_cvref_t<FanoutPolicy>>;
 
 } // namespace yorch::detail

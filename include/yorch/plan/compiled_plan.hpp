@@ -52,6 +52,9 @@ struct compiled_plan {
     using task_type = typename node_type<I>::task_type;
 
     template <std::size_t I>
+    using fanout_policy_type = typename node_type<I>::fanout_policy_type;
+
+    template <std::size_t I>
     using raw_result_type = detail::task_raw_result_t<task_type<I>>;
 
     template <std::size_t I>

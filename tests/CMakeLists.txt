@@ -63,6 +63,7 @@ yorch_add_gtest(
   executor/test_run_plan_policies.cpp
   executor/test_run_plan_direct_output.cpp
   executor/test_run_plan_prev_access.cpp
+  executor/test_run_plan_fanout.cpp
 )
 yorch_add_gtest(test_task_adapters yorch::yorch test_task_adapters.cpp)
 yorch_add_gtest(test_task_tree yorch::yorch test_task_tree.cpp)

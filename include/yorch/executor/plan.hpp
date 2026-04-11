@@ -2,6 +2,7 @@
 
 #include <type_traits>
 
+#include "../detail/executor/fanout.hpp"
 #include "../detail/executor/prev_validation.hpp"
 #include "../detail/executor/serial_dfs.hpp"
 #include "../detail/executor/serial_dfs_explicit_heap_stack.hpp"
@@ -41,14 +42,16 @@ template <
              detail::exec_policy<ExecPolicy> &&
              (Plan::node_count > 0) &&
              detail::plan_prev_source_valid_v<Plan> &&
-             detail::plan_prev_access_valid_v<Plan>
+             detail::plan_prev_access_valid_v<Plan> &&
+             detail::plan_fanout_policy_valid_v<Plan>
 [[nodiscard]] constexpr step_result run_plan(Plan& plan) {
     plan_exec_slots<Plan, LayoutPolicy> slots;
+    detail::plan_fanout_state<Plan> fanout;
 
     if constexpr (std::is_same_v<std::remove_cvref_t<ExecPolicy>, exec_serial_dfs_recursive_policy>) {
-        return detail::run_node<0>(plan, slots);
+        return detail::run_node<0>(plan, slots, fanout);
     } else {
-        return detail::run_explicit_heap_stack(plan, slots);
+        return detail::run_explicit_heap_stack(plan, slots, fanout);
     }
 }
 
@@ -71,14 +74,16 @@ template <
              detail::exec_policy<ExecPolicy> &&
              (Plan::node_count > 0) &&
              detail::plan_prev_source_valid_v<Plan> &&
-             detail::plan_prev_access_valid_v<Plan>
+             detail::plan_prev_access_valid_v<Plan> &&
+             detail::plan_fanout_policy_valid_v<Plan>
 [[nodiscard]] constexpr step_result run_plan(Plan& plan, Ctx& ctx) {
     plan_exec_slots<Plan, LayoutPolicy> slots;
+    detail::plan_fanout_state<Plan> fanout;
 
     if constexpr (std::is_same_v<std::remove_cvref_t<ExecPolicy>, exec_serial_dfs_recursive_policy>) {
-        return detail::run_node<0>(plan, slots, ctx);
+        return detail::run_node<0>(plan, slots, fanout, ctx);
     } else {
-        return detail::run_explicit_heap_stack(plan, slots, ctx);
+        return detail::run_explicit_heap_stack(plan, slots, fanout, ctx);
     }
 }
 

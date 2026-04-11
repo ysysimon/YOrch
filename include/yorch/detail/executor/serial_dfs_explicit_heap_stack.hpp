@@ -23,6 +23,8 @@ struct dfs_stack_frame {
     std::size_t next_child_ordinal = 0;
     bool entered = false;
     bool payload_live = false;
+    bool requires_fanout_staging = false;
+    bool fanout_prepared = false;
 };
 
 /**
@@ -34,8 +36,11 @@ struct dfs_stack_frame {
  * a uniform function-pointer shape so later code can dispatch by index.
  */
 template <std::size_t I, typename Plan, typename Slots>
-[[nodiscard]] constexpr node_enter_result enter_node_runtime(Plan& plan, Slots& slots) {
-    return enter_node<I>(plan, slots);
+[[nodiscard]] constexpr node_enter_result enter_node_runtime(
+    Plan& plan,
+    Slots& slots,
+    plan_fanout_state<Plan>& fanout) {
+    return enter_node<I>(plan, slots, fanout);
 }
 
 /**
@@ -45,8 +50,9 @@ template <std::size_t I, typename Plan, typename Slots, typename Ctx>
 [[nodiscard]] constexpr node_enter_result enter_node_runtime(
     Plan& plan,
     Slots& slots,
+    plan_fanout_state<Plan>& fanout,
     Ctx& ctx) {
-    return enter_node<I>(plan, slots, ctx);
+    return enter_node<I>(plan, slots, fanout, ctx);
 }
 
 /**
@@ -59,6 +65,16 @@ template <std::size_t I, typename Plan, typename Slots, typename Ctx>
 template <std::size_t I, typename Slots>
 constexpr void destroy_node_payload_runtime(Slots& slots) noexcept {
     slots.template destroy<I>();
+}
+
+template <std::size_t I, typename Plan, typename Slots>
+constexpr void prepare_fanout_runtime(Slots& slots, plan_fanout_state<Plan>& fanout) {
+    fanout.template prepare_fanout_staging<I>(slots);
+}
+
+template <std::size_t I, typename Plan>
+constexpr void destroy_fanout_runtime(plan_fanout_state<Plan>& fanout) noexcept {
+    fanout.template destroy_fanout_staging<I>();
 }
 
 /**
@@ -79,7 +95,7 @@ constexpr void destroy_node_payload_runtime(Slots& slots) noexcept {
  */
 template <typename Plan, typename Slots, std::size_t... I>
 [[nodiscard]] consteval auto make_enter_node_dispatch_table(std::index_sequence<I...>) {
-    using fn_t = node_enter_result (*)(Plan&, Slots&);
+    using fn_t = node_enter_result (*)(Plan&, Slots&, plan_fanout_state<Plan>&);
     return std::array<fn_t, sizeof...(I)> {
         &enter_node_runtime<I, Plan, Slots>...
     };
@@ -91,7 +107,7 @@ template <typename Plan, typename Slots, std::size_t... I>
  */
 template <typename Plan, typename Slots, typename Ctx, std::size_t... I>
 [[nodiscard]] consteval auto make_enter_node_dispatch_table(std::index_sequence<I...>) {
-    using fn_t = node_enter_result (*)(Plan&, Slots&, Ctx&);
+    using fn_t = node_enter_result (*)(Plan&, Slots&, plan_fanout_state<Plan>&, Ctx&);
     return std::array<fn_t, sizeof...(I)> {
         &enter_node_runtime<I, Plan, Slots, Ctx>...
     };
@@ -113,6 +129,29 @@ template <typename Plan, typename Slots, std::size_t... I>
     };
 }
 
+template <typename Plan, typename Slots, std::size_t... I>
+[[nodiscard]] consteval auto make_prepare_fanout_dispatch_table(std::index_sequence<I...>) {
+    using fn_t = void (*)(Slots&, plan_fanout_state<Plan>&);
+    return std::array<fn_t, sizeof...(I)> {
+        &prepare_fanout_runtime<I, Plan, Slots>...
+    };
+}
+
+template <typename Plan, typename Slots, std::size_t... I>
+[[nodiscard]] consteval auto make_destroy_fanout_dispatch_table(std::index_sequence<I...>) {
+    using fn_t = void (*)(plan_fanout_state<Plan>&) noexcept;
+    return std::array<fn_t, sizeof...(I)> {
+        &destroy_fanout_runtime<I, Plan>...
+    };
+}
+
+template <typename Plan, std::size_t... I>
+[[nodiscard]] consteval auto make_requires_fanout_staging_table(std::index_sequence<I...>) {
+    return std::array<bool, sizeof...(I)> {
+        parent_requires_fanout_staging_v<Plan, I>...
+    };
+}
+
 /**
  * @brief Executes serial DFS using a heap-backed explicit stack.
  *
@@ -123,13 +162,18 @@ template <typename Plan, typename Slots, std::size_t... I>
  * - runtime traversal state: `frame.node_index`
  * - compile-time node logic: `enter_node<I>(...)` and `slots.destroy<I>()`
  */
-template <typename Plan, typename EnterInvoker, typename DestroyInvoker>
+template <typename Plan, typename EnterInvoker, typename DestroyInvoker, typename PrepareFanoutInvoker, typename DestroyFanoutInvoker>
 [[nodiscard]] constexpr step_result run_explicit_heap_stack_loop(
+    const auto& requires_fanout_staging_by_index,
     EnterInvoker enter_node_by_index,
-    DestroyInvoker destroy_node_payload_by_index) {
+    DestroyInvoker destroy_node_payload_by_index,
+    PrepareFanoutInvoker prepare_fanout_by_index,
+    DestroyFanoutInvoker destroy_fanout_by_index) {
     std::vector<dfs_stack_frame> frames;
     frames.reserve(Plan::max_level + 1);
-    frames.push_back(dfs_stack_frame {.node_index = 0});
+    frames.push_back(dfs_stack_frame {
+        .node_index = 0,
+        .requires_fanout_staging = requires_fanout_staging_by_index[0]});
 
     // `current_step` always represents the result of the subtree that most
     // recently finished. `subtree_complete == false` means we are still
@@ -161,6 +205,11 @@ template <typename Plan, typename EnterInvoker, typename DestroyInvoker>
                 }
             }
 
+            if (frame.requires_fanout_staging && !frame.fanout_prepared) {
+                prepare_fanout_by_index(frame.node_index);
+                frame.fanout_prepared = true;
+            }
+
             // The node body already succeeded and there are no more children to
             // visit, so this whole subtree completes with `success`.
             if (frame.next_child_ordinal == Plan::child_counts[frame.node_index]) {
@@ -175,7 +224,9 @@ template <typename Plan, typename EnterInvoker, typename DestroyInvoker>
             // recover the concrete child node index.
             const auto child_index = Plan::child_indices[
                 Plan::child_offsets[frame.node_index] + frame.next_child_ordinal];
-            frames.push_back(dfs_stack_frame {.node_index = child_index});
+            frames.push_back(dfs_stack_frame {
+                .node_index = child_index,
+                .requires_fanout_staging = requires_fanout_staging_by_index[child_index]});
             continue;
         }
 
@@ -185,6 +236,9 @@ template <typename Plan, typename EnterInvoker, typename DestroyInvoker>
         // Take a by-value snapshot before `pop_back()` so later stack mutation
         // cannot leave us with a dangling reference to the finished frame.
         const auto finished = frames.back();
+        if (finished.requires_fanout_staging && finished.fanout_prepared) {
+            destroy_fanout_by_index(finished.node_index);
+        }
         if (finished.payload_live) {
             destroy_node_payload_by_index(finished.node_index);
         }
@@ -234,6 +288,15 @@ struct explicit_heap_stack_dispatch {
     static constexpr auto destroy =
         make_destroy_node_dispatch_table<Plan, Slots>(
             std::make_index_sequence<Plan::node_count> {});
+    static constexpr auto prepare_fanout =
+        make_prepare_fanout_dispatch_table<Plan, Slots>(
+            std::make_index_sequence<Plan::node_count> {});
+    static constexpr auto destroy_fanout =
+        make_destroy_fanout_dispatch_table<Plan, Slots>(
+            std::make_index_sequence<Plan::node_count> {});
+    static constexpr auto requires_fanout_staging =
+        make_requires_fanout_staging_table<Plan>(
+            std::make_index_sequence<Plan::node_count> {});
 };
 
 template <typename Plan, typename Slots, typename Ctx>
@@ -244,16 +307,35 @@ struct explicit_heap_stack_dispatch_with_ctx {
     static constexpr auto destroy =
         make_destroy_node_dispatch_table<Plan, Slots>(
             std::make_index_sequence<Plan::node_count> {});
+    static constexpr auto prepare_fanout =
+        make_prepare_fanout_dispatch_table<Plan, Slots>(
+            std::make_index_sequence<Plan::node_count> {});
+    static constexpr auto destroy_fanout =
+        make_destroy_fanout_dispatch_table<Plan, Slots>(
+            std::make_index_sequence<Plan::node_count> {});
+    static constexpr auto requires_fanout_staging =
+        make_requires_fanout_staging_table<Plan>(
+            std::make_index_sequence<Plan::node_count> {});
 };
 
 template <typename Plan, typename Slots>
-[[nodiscard]] constexpr step_result run_explicit_heap_stack(Plan& plan, Slots& slots) {
+[[nodiscard]] constexpr step_result run_explicit_heap_stack(
+    Plan& plan,
+    Slots& slots,
+    plan_fanout_state<Plan>& fanout) {
     return run_explicit_heap_stack_loop<Plan>(
+        explicit_heap_stack_dispatch<Plan, Slots>::requires_fanout_staging,
         [&](std::size_t node_index) constexpr -> node_enter_result {
-            return explicit_heap_stack_dispatch<Plan, Slots>::enter[node_index](plan, slots);
+            return explicit_heap_stack_dispatch<Plan, Slots>::enter[node_index](plan, slots, fanout);
         },
         [&](std::size_t node_index) constexpr {
             explicit_heap_stack_dispatch<Plan, Slots>::destroy[node_index](slots);
+        },
+        [&](std::size_t node_index) constexpr {
+            explicit_heap_stack_dispatch<Plan, Slots>::prepare_fanout[node_index](slots, fanout);
+        },
+        [&](std::size_t node_index) constexpr {
+            explicit_heap_stack_dispatch<Plan, Slots>::destroy_fanout[node_index](fanout);
         });
 }
 
@@ -261,16 +343,28 @@ template <typename Plan, typename Slots, typename Ctx>
 [[nodiscard]] constexpr step_result run_explicit_heap_stack(
     Plan& plan,
     Slots& slots,
+    plan_fanout_state<Plan>& fanout,
     Ctx& ctx) {
     return run_explicit_heap_stack_loop<Plan>(
+        explicit_heap_stack_dispatch_with_ctx<Plan, Slots, Ctx>::requires_fanout_staging,
         [&](std::size_t node_index) constexpr -> node_enter_result {
             return explicit_heap_stack_dispatch_with_ctx<Plan, Slots, Ctx>::enter[node_index](
                 plan,
                 slots,
+                fanout,
                 ctx);
         },
         [&](std::size_t node_index) constexpr {
             explicit_heap_stack_dispatch_with_ctx<Plan, Slots, Ctx>::destroy[node_index](slots);
+        },
+        [&](std::size_t node_index) constexpr {
+            explicit_heap_stack_dispatch_with_ctx<Plan, Slots, Ctx>::prepare_fanout[node_index](
+                slots,
+                fanout);
+        },
+        [&](std::size_t node_index) constexpr {
+            explicit_heap_stack_dispatch_with_ctx<Plan, Slots, Ctx>::destroy_fanout[node_index](
+                fanout);
         });
 }
 
