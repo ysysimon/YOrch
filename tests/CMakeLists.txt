@@ -17,8 +17,8 @@ if(NOT GTest_FOUND)
     FetchContent_MakeAvailable(googletest)
 endif()
 
-function(yorch_add_gtest target_name link_target source_file)
-  add_executable(${target_name} ${source_file})
+function(yorch_add_gtest target_name link_target)
+  add_executable(${target_name} ${ARGN})
   target_link_libraries(${target_name} PRIVATE ${link_target} GTest::gtest_main)
   gtest_discover_tests(${target_name}
     TEST_PREFIX "yorch."
@@ -55,7 +55,15 @@ yorch_add_gtest(test_context yorch::yorch test_context.cpp)
 yorch_add_gtest(test_specs yorch::yorch test_specs.cpp)
 yorch_add_gtest(test_resolve yorch::yorch test_resolve.cpp)
 yorch_add_gtest(test_bind yorch::yorch test_bind.cpp)
-yorch_add_gtest(test_executor yorch::yorch test_executor.cpp)
+yorch_add_gtest(
+  test_executor
+  yorch::yorch
+  executor/test_run_task.cpp
+  executor/test_run_plan_basic.cpp
+  executor/test_run_plan_policies.cpp
+  executor/test_run_plan_direct_output.cpp
+  executor/test_run_plan_prev_access.cpp
+)
 yorch_add_gtest(test_task_adapters yorch::yorch test_task_adapters.cpp)
 yorch_add_gtest(test_task_tree yorch::yorch test_task_tree.cpp)
 yorch_add_gtest(test_plan yorch::yorch test_plan.cpp)
