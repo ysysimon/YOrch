@@ -1,39 +1,44 @@
 #pragma once
 
-#include <concepts> // IWYU pragma: keep
-#include <cstddef>
-#include <exception>
 #include <type_traits>
 
-#include "../../bind.hpp"
-#include "../../task_adapters.hpp" // IWYU pragma: keep
+#include "../../bind.hpp" // IWYU pragma: keep
+#include "../task_adapters/traits.hpp" // IWYU pragma: keep
+#include "../../plan/traits.hpp" // IWYU pragma: keep
+#include "../../task_tree/policies.hpp" // IWYU pragma: keep
 
 namespace yorch::detail {
 
+template <typename Task>
+concept task_object_argument =
+    (!bind_callable<Task>) || plannable_task<std::remove_cvref_t<Task>>;
+
 template <typename F>
-concept bind_callable =
-    requires {
-        { function_traits<std::remove_cvref_t<F>>::arity } -> std::convertible_to<std::size_t>;
-    };
+concept callable_task_argument =
+    bind_callable<F> && !plannable_task<std::remove_cvref_t<F>>;
 
-template <typename F, typename... Specs>
-concept bind_signature_matches =
-    bind_callable<F> &&
-    function_traits<std::remove_cvref_t<F>>::arity == sizeof...(Specs);
+template <typename Task>
+concept direct_output_task_object_argument =
+    task_object_argument<Task> &&
+    has_declared_task_output_v<Task>;
 
-template <typename T, typename F, typename... Specs>
-concept bind_into_signature_matches =
-    bind_callable<F> &&
-    function_traits<std::remove_cvref_t<F>>::arity > 0 &&
-    function_traits<std::remove_cvref_t<F>>::arity == sizeof...(Specs) + 1 &&
-    std::is_same_v<
-        std::remove_cvref_t<last_arg_t<std::remove_cvref_t<F>>>,
-        direct_out<T>>;
+template <typename Task>
+concept ordinary_task_object_argument =
+    task_object_argument<Task> &&
+    !direct_output_task_object_argument<Task>;
 
-template <typename Policy>
-concept catch_policy_like =
-    requires(Policy& policy, const std::exception_ptr& ep) {
-        { policy(ep) } noexcept;
-    };
+template <typename F>
+concept ordinary_callable_task_argument =
+    callable_task_argument<F> &&
+    ordinary_bind_callable<F>;
+
+template <typename F>
+concept direct_output_callable_task_argument =
+    callable_task_argument<F> &&
+    inferable_direct_output_callable<F>;
+
+template <typename T>
+concept fanout_policy_or_chain =
+    fanout_policy<T> || adapter_chain_like<T>;
 
 } // namespace yorch::detail

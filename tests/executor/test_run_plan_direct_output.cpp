@@ -5,7 +5,7 @@ using namespace executor_test_support;
 TEST(ExecutorTest, RunPlanSupportsDirectOutputTasksAndImmovablePayloads) {
     int seen_value = 0;
 
-    auto tree = yorch::task_tree.root(yorch::bind_into<immovable_payload>(
+    auto tree = yorch::task_tree.root_into(yorch::bind_into<immovable_payload>(
             [](yorch::direct_out<immovable_payload> out) noexcept -> yorch::step_result {
                 return out.success(11);
             }))
@@ -26,7 +26,7 @@ TEST(ExecutorTest, RunPlanSupportsDirectOutputTasksAndImmovablePayloads) {
 TEST(ExecutorTest, RunPlanSupportsCompactLayoutForDirectOutputTasksAndImmovablePayloads) {
     int seen_value = 0;
 
-    auto tree = yorch::task_tree.root(yorch::bind_into<immovable_payload>(
+    auto tree = yorch::task_tree.root_into(yorch::bind_into<immovable_payload>(
             [](yorch::direct_out<immovable_payload> out) noexcept -> yorch::step_result {
                 return out.success(19);
             }))
@@ -48,7 +48,7 @@ TEST(ExecutorTest, RunPlanSupportsCompactLayoutForDirectOutputTasksAndImmovableP
 TEST(ExecutorTest, RunPlanExplicitHeapStackSupportsCompactLayoutForDirectOutputTasksAndImmovablePayloads) {
     int seen_value = 0;
 
-    auto tree = yorch::task_tree.root(yorch::bind_into<immovable_payload>(
+    auto tree = yorch::task_tree.root_into(yorch::bind_into<immovable_payload>(
             [](yorch::direct_out<immovable_payload> out) noexcept -> yorch::step_result {
                 return out.success(23);
             }))
@@ -72,7 +72,7 @@ TEST(ExecutorTest, RunPlanExplicitHeapStackSupportsCompactLayoutForDirectOutputT
 TEST(ExecutorTest, RunPlanDestroysDirectOutputPayloadWhenNodeReturnsFailureAfterEmplace) {
     lifetime_tracker tracker;
 
-    auto tree = yorch::task_tree.root(yorch::bind_into<lifetime_probe>(
+    auto tree = yorch::task_tree.root_into(yorch::bind_into<lifetime_probe>(
             [&](yorch::direct_out<lifetime_probe> out) noexcept -> yorch::step_result {
                 out.emplace(tracker, 13);
                 return yorch::step_result::failure();
@@ -95,7 +95,7 @@ TEST(ExecutorTest, RunPlanSupportsRetryAdapterOnDirectOutputTasks) {
     int attempts = 0;
     int seen_value = 0;
 
-    auto tree = yorch::task_tree.root(yorch::with_retry(
+    auto tree = yorch::task_tree.root_into(yorch::with_retry(
             yorch::bind_into<int>(
                 [&](yorch::direct_out<int> out) noexcept -> yorch::step_result {
                     ++attempts;
@@ -126,7 +126,7 @@ TEST(ExecutorTest, RunPlanSupportsRetryAdapterOnDirectOutputTasks) {
 TEST(ExecutorTest, RunPlanSupportsCatchAdapterOnDirectOutputTasks) {
     std::vector<std::string> trace;
 
-    auto tree = yorch::task_tree.root(yorch::catch_as_failure(
+    auto tree = yorch::task_tree.root_into(yorch::catch_as_failure(
             yorch::bind_into<int>(
                 [&](yorch::direct_out<int>) -> yorch::step_result {
                     trace.emplace_back("root");

@@ -62,7 +62,7 @@
 
 这一步由 `bind_from_lvalue(...)` 完成。
 
-### `bind(f, specs...)`
+### `bind(f, specs...)` 与 `task(f)(specs...)`
 
 `bind(...)` 把 callable 和一组 `spec` 打包成一个 `bound_task`。
 
@@ -73,6 +73,23 @@
 - 把 callable 和 `spec` 都按值存起来
 
 `bind(...)` 只负责组装，不执行任务，也不提前取参数。
+
+如果更偏好两段式 API，也可以写成：
+
+```cpp
+auto task = yorch::task(
+    f,
+    yorch::adapters(yorch::adapt_catch_as_failure()))(
+    yorch::from_ctx<int>(),
+    yorch::value(4),
+    yorch::borrow_prev<std::string>());
+```
+
+其中：
+
+- `task(f)(specs...)` 等价于 `bind(f, specs...)`
+- `task_into(f)(specs...)` 会从 callable 最后一个 `yorch::direct_out<T>` 参数自动推导出 `T`
+- `adapters(...)` 按书写顺序从外到内包裹 task
 
 ### `run_task(task, ec)`
 

@@ -279,3 +279,97 @@ TEST(BindTest, BoundOutputTaskNormalizesVoidCallableReturnToSuccess) {
     EXPECT_TRUE(slot.has_value());
     EXPECT_EQ(slot.get(), 9);
 }
+
+TEST(BindTest, TaskSugarBuildsBoundTaskFromCallableAndSpecs) {
+    yorch::context<int, std::string> ctx(3, "job");
+    yorch::exec_context<decltype(ctx)> exec {ctx};
+
+    auto task = yorch::task(
+        recorder {})(
+        yorch::from_ctx<int>(),
+        yorch::from_ctx<std::string>(),
+        yorch::value(4));
+
+    const auto result = task.invoke_raw(exec);
+
+    EXPECT_EQ(task.func.seen_value, 3);
+    ASSERT_NE(task.func.seen_label, nullptr);
+    EXPECT_EQ(task.func.seen_label, &ctx.get<std::string>());
+    EXPECT_EQ(ctx.get<int>(), 7);
+    EXPECT_EQ(result.status, yorch::step_status::retry);
+}
+
+TEST(BindTest, TaskIntoSugarBuildsDirectOutputTaskFromCallableAndSpecs) {
+    yorch::context<int> ctx(6);
+    yorch::exec_context<decltype(ctx)> exec {ctx};
+
+    auto task = yorch::task_into(
+        [](int& value, yorch::direct_out<std::string> out) noexcept -> yorch::step_result {
+            value += 1;
+            return out.success(std::to_string(value * 2));
+        })(
+        yorch::from_ctx<int>());
+
+    yorch::detail::typed_slot<std::string> slot;
+    const auto result = task.invoke_into(exec, yorch::direct_out<std::string> {slot});
+
+    EXPECT_TRUE(result.ok());
+    EXPECT_TRUE(slot.has_value());
+    EXPECT_EQ(slot.get(), "14");
+    EXPECT_EQ(ctx.get<int>(), 7);
+}
+
+TEST(BindTest, TaskSugarWithCatchAdapterAppliesDefaultCatchAsFailure) {
+    yorch::exec_context<void> exec;
+
+    auto task = yorch::task(
+        []() -> yorch::step_result {
+            throw std::runtime_error("boom");
+        },
+        yorch::adapters(yorch::adapt_catch_as_failure()))();
+
+    const auto result = task.invoke_raw(exec);
+
+    EXPECT_EQ(result.status, yorch::step_status::failure);
+}
+
+TEST(BindTest, TaskSugarWithRetryAdapterAppliesRetryPolicy) {
+    yorch::exec_context<void> exec;
+    int attempts = 0;
+
+    auto task = yorch::task(
+        [&]() noexcept -> yorch::step_result {
+            ++attempts;
+            return attempts < 3
+                ? yorch::step_result::retry()
+                : yorch::step_result::success();
+        },
+        yorch::adapters(yorch::adapt_retry(yorch::retry_fixed_policy {3})))();
+
+    const auto result = task.invoke_raw(exec);
+
+    EXPECT_TRUE(result.ok());
+    EXPECT_EQ(attempts, 3);
+}
+
+TEST(BindTest, TaskSugarAppliesAdaptersFromOutsideToInside) {
+    yorch::exec_context<void> exec;
+    int attempts = 0;
+
+    auto task = yorch::task(
+        [&]() -> yorch::step_result {
+            ++attempts;
+            if (attempts == 1) {
+                throw std::runtime_error("boom");
+            }
+            return yorch::step_result::success();
+        },
+        yorch::adapters(
+            yorch::adapt_catch_as_failure(),
+            yorch::adapt_retry(yorch::retry_fixed_policy {2})))();
+
+    const auto result = task.invoke_raw(exec);
+
+    EXPECT_EQ(result.status, yorch::step_status::failure);
+    EXPECT_EQ(attempts, 1);
+}

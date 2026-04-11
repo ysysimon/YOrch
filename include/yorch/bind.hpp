@@ -1,5 +1,6 @@
 #pragma once
 #include <cstddef>
+#include <exception>
 #include <functional>
 #include <tuple>
 #include <type_traits>
@@ -8,6 +9,7 @@
 #include "context.hpp"
 #include "resolve.hpp"
 #include "slots.hpp"
+#include "task_adapters.hpp"
 
 namespace yorch::detail {
 
@@ -21,7 +23,7 @@ namespace yorch::detail {
  *
  * @tparam T Callable or function type to inspect.
  */
-template <typename T>
+template <typename T, typename = void>
 struct function_traits;
 
 /**
@@ -68,7 +70,10 @@ template <typename C, typename R, typename... Args>
 struct function_traits<R (C::*)(Args...) const noexcept> : function_traits<R(Args...)> {};
 
 template <typename F>
-struct function_traits : function_traits<decltype(&std::remove_reference_t<F>::operator())> {};
+struct function_traits<
+    F,
+    std::void_t<decltype(&std::remove_reference_t<F>::operator())>>
+    : function_traits<decltype(&std::remove_reference_t<F>::operator())> {};
 
 template <std::size_t I, typename F>
 using nth_arg_t = typename function_traits<std::remove_cvref_t<F>>::template arg<I>;
@@ -83,6 +88,98 @@ inline constexpr std::size_t last_arg_index_v =
 template <typename F>
 using last_arg_t =
     nth_arg_t<last_arg_index_v<F>, F>;
+
+template <typename T>
+struct direct_out_arg : std::false_type {};
+
+template <typename T>
+struct direct_out_arg<direct_out<T>> : std::true_type {};
+
+template <typename T>
+inline constexpr bool direct_out_arg_v =
+    direct_out_arg<std::remove_cvref_t<T>>::value;
+
+template <typename T>
+concept direct_out_arg_like =
+    direct_out_arg_v<T>;
+
+template <typename T, typename = void>
+struct direct_out_payload;
+
+template <typename T>
+struct direct_out_payload<direct_out<T>, void> {
+    using type = T;
+};
+
+template <typename T>
+using direct_out_payload_t = typename direct_out_payload<T>::type;
+
+template <typename F>
+concept bind_callable =
+    requires {
+        { function_traits<std::remove_cvref_t<F>>::arity } -> std::convertible_to<std::size_t>;
+    };
+
+template <typename F>
+concept inferable_direct_output_callable =
+    bind_callable<F> &&
+    function_traits<std::remove_cvref_t<F>>::arity > 0 &&
+    direct_out_arg_like<last_arg_t<std::remove_cvref_t<F>>>;
+
+template <typename F>
+concept ordinary_bind_callable =
+    bind_callable<F> &&
+    !inferable_direct_output_callable<F>;
+
+template <typename Task>
+concept bind_task_object =
+    requires {
+        typename std::remove_cvref_t<Task>::raw_result_type;
+    };
+
+template <typename F, typename... Specs>
+concept bind_signature_matches =
+    ordinary_bind_callable<F> &&
+    function_traits<std::remove_cvref_t<F>>::arity == sizeof...(Specs);
+
+template <typename T, typename F, typename... Specs>
+concept bind_into_signature_matches =
+    inferable_direct_output_callable<F> &&
+    function_traits<std::remove_cvref_t<F>>::arity == sizeof...(Specs) + 1 &&
+    std::is_same_v<
+        std::remove_cvref_t<last_arg_t<std::remove_cvref_t<F>>>,
+        direct_out<T>>;
+
+template <typename F, typename... Specs>
+concept inferred_bind_into_signature_matches =
+    inferable_direct_output_callable<F> &&
+    function_traits<std::remove_cvref_t<F>>::arity == sizeof...(Specs) + 1;
+
+template <typename Policy>
+concept catch_policy_like =
+    requires(Policy& policy, const std::exception_ptr& ep) {
+        { policy(ep) } noexcept;
+    };
+
+struct default_catch_adapter_policy_tag {};
+
+template <typename Task, typename PolicyLike>
+constexpr auto apply_catch_adapter(Task&& task, PolicyLike&& policy_like) {
+    if constexpr (std::is_same_v<std::remove_cvref_t<PolicyLike>, default_catch_adapter_policy_tag>) {
+        return catch_as_failure(std::forward<Task>(task));
+    } else {
+        return catch_as_failure(std::forward<Task>(task), std::forward<PolicyLike>(policy_like));
+    }
+}
+
+template <typename Self, typename T>
+[[nodiscard]] constexpr decltype(auto) forward_member(T& value) noexcept {
+    if constexpr (std::is_lvalue_reference_v<Self&&>) {
+        return (value);
+    } else {
+        return std::move(value);
+    }
+}
 
 } // namespace yorch::detail
 
@@ -261,6 +358,335 @@ constexpr auto bind_into(F&& f, Specs&&... specs) {
         std::forward<F>(f),
         std::tuple<std::decay_t<Specs>...> {std::forward<Specs>(specs)...}
     };
+}
+
+struct catch_as_failure_adapter_desc {};
+
+template <typename Policy>
+struct catch_as_failure_with_policy_adapter_desc {
+    Policy policy;
+};
+
+template <typename Policy>
+struct retry_adapter_desc {
+    Policy policy;
+};
+
+template <typename... Descs>
+struct adapter_chain {
+    std::tuple<Descs...> descriptors;
+};
+
+template <typename Policy>
+constexpr auto adapt_retry(Policy&& policy)
+    requires retry_policy<std::decay_t<Policy>> {
+    return retry_adapter_desc<std::decay_t<Policy>> {
+        std::forward<Policy>(policy)
+    };
+}
+
+[[nodiscard]] constexpr auto adapt_catch_as_failure() noexcept {
+    return catch_as_failure_adapter_desc {};
+}
+
+template <typename Policy>
+constexpr auto adapt_catch_as_failure(Policy&& policy)
+    requires detail::catch_policy_like<std::remove_cvref_t<Policy>> {
+    return catch_as_failure_with_policy_adapter_desc<std::decay_t<Policy>> {
+        std::forward<Policy>(policy)
+    };
+}
+
+namespace detail {
+
+template <typename Desc>
+struct is_adapter_descriptor : std::false_type {};
+
+template <>
+struct is_adapter_descriptor<catch_as_failure_adapter_desc> : std::true_type {};
+
+template <typename Policy>
+struct is_adapter_descriptor<catch_as_failure_with_policy_adapter_desc<Policy>> : std::true_type {};
+
+template <typename Policy>
+struct is_adapter_descriptor<retry_adapter_desc<Policy>> : std::true_type {};
+
+template <typename Desc>
+inline constexpr bool is_adapter_descriptor_v =
+    is_adapter_descriptor<std::remove_cvref_t<Desc>>::value;
+
+template <typename Desc>
+concept adapter_descriptor =
+    is_adapter_descriptor_v<Desc>;
+
+template <typename T>
+struct is_adapter_chain : std::false_type {};
+
+template <typename... Descs>
+struct is_adapter_chain<adapter_chain<Descs...>> : std::true_type {};
+
+template <typename T>
+inline constexpr bool is_adapter_chain_v =
+    is_adapter_chain<std::remove_cvref_t<T>>::value;
+
+template <typename T>
+concept adapter_chain_like =
+    is_adapter_chain_v<T>;
+
+template <std::size_t I, typename Task, typename Tuple>
+constexpr auto apply_adapters_from_const(Task&& task, const Tuple& descriptors) {
+    if constexpr (I == 0) {
+        return std::forward<Task>(task);
+    } else {
+        return apply_adapter(
+            std::get<I - 1>(descriptors),
+            apply_adapters_from_const<I - 1>(std::forward<Task>(task), descriptors));
+    }
+}
+
+template <std::size_t I, typename Task, typename Tuple>
+constexpr auto apply_adapters_from_mut(Task&& task, Tuple&& descriptors) {
+    if constexpr (I == 0) {
+        return std::forward<Task>(task);
+    } else {
+        return apply_adapter(
+            std::move(std::get<I - 1>(descriptors)),
+            apply_adapters_from_mut<I - 1>(
+                std::forward<Task>(task),
+                std::forward<Tuple>(descriptors)));
+    }
+}
+
+} // namespace detail
+
+template <typename... Descs>
+    requires (detail::adapter_descriptor<Descs> && ...)
+constexpr auto adapters(Descs&&... descs) {
+    return adapter_chain<std::decay_t<Descs>...> {
+        std::tuple<std::decay_t<Descs>...> {
+            std::forward<Descs>(descs)...
+        }
+    };
+}
+
+template <typename Task>
+constexpr auto apply_adapters(Task&& task, const adapter_chain<>&) {
+    return std::forward<Task>(task);
+}
+
+template <typename Task, typename... Descs>
+constexpr auto apply_adapters(Task&& task, const adapter_chain<Descs...>& chain) {
+    return detail::apply_adapters_from_const<sizeof...(Descs)>(
+        std::forward<Task>(task),
+        chain.descriptors);
+}
+
+template <typename Task, typename... Descs>
+constexpr auto apply_adapters(Task&& task, adapter_chain<Descs...>&& chain) {
+    return detail::apply_adapters_from_mut<sizeof...(Descs)>(
+        std::forward<Task>(task),
+        std::move(chain).descriptors);
+}
+
+template <typename Task, typename Policy>
+constexpr auto apply_adapter(retry_adapter_desc<Policy>& desc, Task&& task) {
+    return with_retry(std::forward<Task>(task), desc.policy);
+}
+
+template <typename Task, typename Policy>
+constexpr auto apply_adapter(const retry_adapter_desc<Policy>& desc, Task&& task) {
+    return with_retry(std::forward<Task>(task), desc.policy);
+}
+
+template <typename Task, typename Policy>
+constexpr auto apply_adapter(retry_adapter_desc<Policy>&& desc, Task&& task) {
+    return with_retry(std::forward<Task>(task), std::move(desc.policy));
+}
+
+template <typename Task>
+constexpr auto apply_adapter(catch_as_failure_adapter_desc, Task&& task) {
+    return detail::apply_catch_adapter(
+        std::forward<Task>(task),
+        detail::default_catch_adapter_policy_tag {});
+}
+
+template <typename Task, typename Policy>
+constexpr auto apply_adapter(catch_as_failure_with_policy_adapter_desc<Policy>& desc, Task&& task) {
+    return detail::apply_catch_adapter(std::forward<Task>(task), desc.policy);
+}
+
+template <typename Task, typename Policy>
+constexpr auto apply_adapter(
+    const catch_as_failure_with_policy_adapter_desc<Policy>& desc,
+    Task&& task) {
+    return detail::apply_catch_adapter(std::forward<Task>(task), desc.policy);
+}
+
+template <typename Task, typename Policy>
+constexpr auto apply_adapter(
+    catch_as_failure_with_policy_adapter_desc<Policy>&& desc,
+    Task&& task) {
+    return detail::apply_catch_adapter(std::forward<Task>(task), std::move(desc.policy));
+}
+
+template <typename F, typename AdapterChain>
+struct task_into_binder;
+
+template <typename F, typename AdapterChain>
+struct task_binder {
+    F func;
+    AdapterChain adapter_specs;
+
+    template <typename... Specs>
+        requires detail::bind_signature_matches<F, Specs...>
+    constexpr auto operator()(Specs&&... specs) const& {
+        return yorch::apply_adapters(
+            yorch::bind(func, std::forward<Specs>(specs)...),
+            adapter_specs);
+    }
+
+    template <typename... Specs>
+        requires detail::bind_signature_matches<F, Specs...>
+    constexpr auto operator()(Specs&&... specs) && {
+        return yorch::apply_adapters(
+            yorch::bind(std::move(func), std::forward<Specs>(specs)...),
+            std::move(adapter_specs));
+    }
+};
+
+template <typename F, typename AdapterChain>
+struct task_into_binder {
+    F func;
+    AdapterChain adapter_specs;
+    using output_type =
+        detail::direct_out_payload_t<detail::last_arg_t<F>>;
+
+    template <typename... Specs>
+        requires detail::inferred_bind_into_signature_matches<F, Specs...>
+    constexpr auto operator()(Specs&&... specs) const& {
+        return yorch::apply_adapters(
+            yorch::bind_into<output_type>(func, std::forward<Specs>(specs)...),
+            adapter_specs);
+    }
+
+    template <typename... Specs>
+        requires detail::inferred_bind_into_signature_matches<F, Specs...>
+    constexpr auto operator()(Specs&&... specs) && {
+        return yorch::apply_adapters(
+            yorch::bind_into<output_type>(std::move(func), std::forward<Specs>(specs)...),
+            std::move(adapter_specs));
+    }
+};
+
+template <typename F>
+constexpr auto task(F&& f)
+    requires detail::ordinary_bind_callable<F> {
+    return task_binder<std::decay_t<F>, adapter_chain<>> {
+        std::forward<F>(f),
+        {}
+    };
+}
+
+template <typename F, typename AdapterChain>
+constexpr auto task(F&& f, AdapterChain&& adapter_specs)
+    requires detail::ordinary_bind_callable<F> &&
+             detail::adapter_chain_like<AdapterChain> {
+    return task_binder<
+        std::decay_t<F>,
+        std::decay_t<AdapterChain>
+    > {
+        std::forward<F>(f),
+        std::forward<AdapterChain>(adapter_specs)
+    };
+}
+
+template <typename F>
+constexpr auto task_into(F&& f)
+    requires detail::inferable_direct_output_callable<F> {
+    return task_into_binder<std::decay_t<F>, adapter_chain<>> {
+        std::forward<F>(f),
+        {}
+    };
+}
+
+template <typename F, typename AdapterChain>
+constexpr auto task_into(F&& f, AdapterChain&& adapter_specs)
+    requires detail::inferable_direct_output_callable<F> &&
+             detail::adapter_chain_like<AdapterChain> {
+    return task_into_binder<
+        std::decay_t<F>,
+        std::decay_t<AdapterChain>
+    > {
+        std::forward<F>(f),
+        std::forward<AdapterChain>(adapter_specs)
+    };
+}
+
+template <typename F>
+// NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
+constexpr void task(F&&)
+    requires detail::inferable_direct_output_callable<F> {
+    static_assert(
+        detail::always_false_v<F>,
+        "yorch::task(...) received a direct-output callable whose last parameter is yorch::direct_out<T>; use yorch::task_into(...) instead.");
+}
+
+template <typename Task>
+// NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
+constexpr void task(Task&&)
+    requires detail::bind_task_object<Task> &&
+             detail::has_declared_task_output_v<Task> {
+    static_assert(
+        detail::always_false_v<Task>,
+        "yorch::task(...) does not accept prebuilt direct-output tasks; pass them directly to root_into(...) or node_into<Level>(...) instead.");
+}
+
+template <typename F, typename AdapterChain>
+// NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
+constexpr void task(F&&, AdapterChain&&)
+    requires detail::inferable_direct_output_callable<F> &&
+             detail::adapter_chain_like<AdapterChain> {
+    static_assert(
+        detail::always_false_v<std::tuple<F, AdapterChain>>,
+        "yorch::task(...) received a direct-output callable whose last parameter is yorch::direct_out<T>; use yorch::task_into(...) instead.");
+}
+
+template <typename Task>
+// NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
+constexpr void task_into(Task&&)
+    requires detail::bind_task_object<Task> {
+    static_assert(
+        detail::always_false_v<Task>,
+        "yorch::task_into(...) only accepts a callable whose last parameter is yorch::direct_out<T>; pass prebuilt tasks directly to root/node instead.");
+}
+
+template <typename Task, typename AdapterChain>
+// NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
+constexpr void task_into(Task&&, AdapterChain&&)
+    requires detail::bind_task_object<Task> &&
+             detail::adapter_chain_like<AdapterChain> {
+    static_assert(
+        detail::always_false_v<std::tuple<Task, AdapterChain>>,
+        "yorch::task_into(...) only accepts a callable whose last parameter is yorch::direct_out<T>; pass prebuilt tasks directly to root/node instead.");
+}
+
+template <typename F>
+// NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
+constexpr void task_into(F&&)
+    requires detail::ordinary_bind_callable<F> {
+    static_assert(
+        detail::always_false_v<F>,
+        "yorch::task_into(...) requires a callable whose last parameter is yorch::direct_out<T>; use yorch::task(...) for ordinary tasks.");
+}
+
+template <typename F, typename AdapterChain>
+// NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
+constexpr void task_into(F&&, AdapterChain&&)
+    requires detail::ordinary_bind_callable<F> &&
+             detail::adapter_chain_like<AdapterChain> {
+    static_assert(
+        detail::always_false_v<std::tuple<F, AdapterChain>>,
+        "yorch::task_into(...) requires a callable whose last parameter is yorch::direct_out<T>; use yorch::task(...) for ordinary tasks.");
 }
 
 } // namespace yorch

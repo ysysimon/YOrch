@@ -6,518 +6,992 @@
 
 #include "../detail/task_tree/concepts.hpp" // IWYU pragma: keep
 #include "../detail/task_tree/metadata.hpp"
+#include "../detail/task_tree/node_binder.hpp"
 
 namespace yorch {
 
-/**
- * @brief Immutable builder that records a static tree-shaped node sequence.
- *
- * Each chained `node<Level>(task)` call returns a new builder type whose node
- * list is extended by one compile-time level-tagged entry. The builder only
- * records the static shape; plan compilation and execution are handled later.
- *
- * @tparam Nodes Previously appended node record types.
- */
 template <typename... Nodes>
 struct task_tree_builder {
     using tuple_type = std::tuple<Nodes...>;
 
-    /// Stored node records in insertion order.
     tuple_type nodes {};
 
-    /// Number of nodes currently recorded in this builder.
     static constexpr std::size_t node_count = sizeof...(Nodes);
-
-    /// Maximum level observed in the current node list.
     static constexpr std::size_t max_level = detail::max_level_v<Nodes...>;
 
     template <std::size_t I>
     using node_type = std::tuple_element_t<I, tuple_type>;
 
-    /// Appends the unique root node onto an empty builder.
     template <typename Task>
-        requires (sizeof...(Nodes) == 0)
+        requires (sizeof...(Nodes) == 0) &&
+                 detail::ordinary_task_object_argument<Task>
     [[nodiscard]] constexpr auto root(Task&& task) const& {
         return node<0>(std::forward<Task>(task));
     }
 
     template <typename Task, typename FanoutPolicy>
         requires (sizeof...(Nodes) == 0) &&
+                 detail::ordinary_task_object_argument<Task> &&
                  detail::fanout_policy<FanoutPolicy>
     [[nodiscard]] constexpr auto root(Task&& task, FanoutPolicy&& fanout_policy) const& {
-        return node<0>(
-            std::forward<Task>(task),
-            std::forward<FanoutPolicy>(fanout_policy));
+        return node<0>(std::forward<Task>(task), std::forward<FanoutPolicy>(fanout_policy));
     }
 
-    /// Appends the unique root node onto an empty builder, moving prior state.
+    template <typename F>
+        requires (sizeof...(Nodes) == 0) &&
+                 detail::ordinary_callable_task_argument<F>
+    [[nodiscard]] constexpr auto root(F&& f) const& {
+        return detail::tree_node_binder<
+            const task_tree_builder*,
+            0,
+            std::decay_t<F>,
+            detail::no_fanout_policy_tag,
+            adapter_chain<>
+        > {
+            this,
+            std::forward<F>(f),
+            {},
+            {}
+        };
+    }
+
+    template <typename F, typename FanoutPolicy>
+        requires (sizeof...(Nodes) == 0) &&
+                 detail::ordinary_callable_task_argument<F> &&
+                 detail::fanout_policy<FanoutPolicy>
+    [[nodiscard]] constexpr auto root(F&& f, FanoutPolicy&& fanout_policy) const& {
+        return detail::tree_node_binder<
+            const task_tree_builder*,
+            0,
+            std::decay_t<F>,
+            std::decay_t<FanoutPolicy>,
+            adapter_chain<>
+        > {
+            this,
+            std::forward<F>(f),
+            std::forward<FanoutPolicy>(fanout_policy),
+            {}
+        };
+    }
+
+    template <typename F, typename AdapterChain>
+        requires (sizeof...(Nodes) == 0) &&
+                 detail::ordinary_callable_task_argument<F> &&
+                 detail::adapter_chain_like<AdapterChain>
+    [[nodiscard]] constexpr auto root(F&& f, AdapterChain&& adapter_specs) const& {
+        return detail::tree_node_binder<
+            const task_tree_builder*,
+            0,
+            std::decay_t<F>,
+            detail::no_fanout_policy_tag,
+            std::decay_t<AdapterChain>
+        > {
+            this,
+            std::forward<F>(f),
+            {},
+            std::forward<AdapterChain>(adapter_specs)
+        };
+    }
+
+    template <typename F, typename FanoutPolicy, typename AdapterChain>
+        requires (sizeof...(Nodes) == 0) &&
+                 detail::ordinary_callable_task_argument<F> &&
+                 detail::fanout_policy<FanoutPolicy> &&
+                 detail::adapter_chain_like<AdapterChain>
+    [[nodiscard]] constexpr auto root(F&& f, FanoutPolicy&& fanout_policy, AdapterChain&& adapter_specs) const& {
+        return detail::tree_node_binder<
+            const task_tree_builder*,
+            0,
+            std::decay_t<F>,
+            std::decay_t<FanoutPolicy>,
+            std::decay_t<AdapterChain>
+        > {
+            this,
+            std::forward<F>(f),
+            std::forward<FanoutPolicy>(fanout_policy),
+            std::forward<AdapterChain>(adapter_specs)
+        };
+    }
+
     template <typename Task>
-        requires (sizeof...(Nodes) == 0)
+        requires (sizeof...(Nodes) == 0) &&
+                 detail::direct_output_task_object_argument<Task>
+    [[nodiscard]] constexpr auto root_into(Task&& task) const& {
+        return node_into<0>(std::forward<Task>(task));
+    }
+
+    template <typename Task, typename FanoutPolicy>
+        requires (sizeof...(Nodes) == 0) &&
+                 detail::direct_output_task_object_argument<Task> &&
+                 detail::fanout_policy<FanoutPolicy>
+    [[nodiscard]] constexpr auto root_into(Task&& task, FanoutPolicy&& fanout_policy) const& {
+        return node_into<0>(std::forward<Task>(task), std::forward<FanoutPolicy>(fanout_policy));
+    }
+
+    template <typename F>
+        requires (sizeof...(Nodes) == 0) &&
+                 detail::direct_output_callable_task_argument<F>
+    [[nodiscard]] constexpr auto root_into(F&& f) const& {
+        return detail::tree_node_into_binder<
+            const task_tree_builder*,
+            0,
+            std::decay_t<F>,
+            detail::no_fanout_policy_tag,
+            adapter_chain<>
+        > {
+            this,
+            std::forward<F>(f),
+            {},
+            {}
+        };
+    }
+
+    template <typename F, typename FanoutPolicy>
+        requires (sizeof...(Nodes) == 0) &&
+                 detail::direct_output_callable_task_argument<F> &&
+                 detail::fanout_policy<FanoutPolicy>
+    [[nodiscard]] constexpr auto root_into(F&& f, FanoutPolicy&& fanout_policy) const& {
+        return detail::tree_node_into_binder<
+            const task_tree_builder*,
+            0,
+            std::decay_t<F>,
+            std::decay_t<FanoutPolicy>,
+            adapter_chain<>
+        > {
+            this,
+            std::forward<F>(f),
+            std::forward<FanoutPolicy>(fanout_policy),
+            {}
+        };
+    }
+
+    template <typename F, typename AdapterChain>
+        requires (sizeof...(Nodes) == 0) &&
+                 detail::direct_output_callable_task_argument<F> &&
+                 detail::adapter_chain_like<AdapterChain>
+    [[nodiscard]] constexpr auto root_into(F&& f, AdapterChain&& adapter_specs) const& {
+        return detail::tree_node_into_binder<
+            const task_tree_builder*,
+            0,
+            std::decay_t<F>,
+            detail::no_fanout_policy_tag,
+            std::decay_t<AdapterChain>
+        > {
+            this,
+            std::forward<F>(f),
+            {},
+            std::forward<AdapterChain>(adapter_specs)
+        };
+    }
+
+    template <typename F, typename FanoutPolicy, typename AdapterChain>
+        requires (sizeof...(Nodes) == 0) &&
+                 detail::direct_output_callable_task_argument<F> &&
+                 detail::fanout_policy<FanoutPolicy> &&
+                 detail::adapter_chain_like<AdapterChain>
+    [[nodiscard]] constexpr auto root_into(F&& f, FanoutPolicy&& fanout_policy, AdapterChain&& adapter_specs) const& {
+        return detail::tree_node_into_binder<
+            const task_tree_builder*,
+            0,
+            std::decay_t<F>,
+            std::decay_t<FanoutPolicy>,
+            std::decay_t<AdapterChain>
+        > {
+            this,
+            std::forward<F>(f),
+            std::forward<FanoutPolicy>(fanout_policy),
+            std::forward<AdapterChain>(adapter_specs)
+        };
+    }
+
+    template <typename Task>
+        requires (sizeof...(Nodes) == 0) &&
+                 detail::ordinary_task_object_argument<Task>
     [[nodiscard]] constexpr auto root(Task&& task) && {
         return std::move(*this).template node<0>(std::forward<Task>(task));
     }
 
     template <typename Task, typename FanoutPolicy>
         requires (sizeof...(Nodes) == 0) &&
+                 detail::ordinary_task_object_argument<Task> &&
                  detail::fanout_policy<FanoutPolicy>
     [[nodiscard]] constexpr auto root(Task&& task, FanoutPolicy&& fanout_policy) && {
-        return std::move(*this).template node<0>(
-            std::forward<Task>(task),
-            std::forward<FanoutPolicy>(fanout_policy));
+        return std::move(*this).template node<0>(std::forward<Task>(task), std::forward<FanoutPolicy>(fanout_policy));
     }
 
-    /// Convenience syntax for `root(yorch::bind(f, specs...))`.
-    template <typename F, typename... Specs>
-        requires (sizeof...(Nodes) == 0) && detail::bind_signature_matches<F, Specs...>
-    [[nodiscard]] constexpr auto root_bind(F&& f, Specs&&... specs) const& {
-        return root(yorch::bind(std::forward<F>(f), std::forward<Specs>(specs)...));
-    }
-
-    /// Rvalue overload of `root_bind(...)`.
-    template <typename F, typename... Specs>
-        requires (sizeof...(Nodes) == 0) && detail::bind_signature_matches<F, Specs...>
-    [[nodiscard]] constexpr auto root_bind(F&& f, Specs&&... specs) && {
-        return std::move(*this).template node<0>(
-            yorch::bind(std::forward<F>(f), std::forward<Specs>(specs)...));
-    }
-
-    /// Convenience syntax for `root(yorch::bind_into<T>(f, specs...))`.
-    template <typename T, typename F, typename... Specs>
-        requires (sizeof...(Nodes) == 0) && detail::bind_into_signature_matches<T, F, Specs...>
-    [[nodiscard]] constexpr auto root_bind_into(F&& f, Specs&&... specs) const& {
-        return root(yorch::bind_into<T>(std::forward<F>(f), std::forward<Specs>(specs)...));
-    }
-
-    /// Rvalue overload of `root_bind_into(...)`.
-    template <typename T, typename F, typename... Specs>
-        requires (sizeof...(Nodes) == 0) && detail::bind_into_signature_matches<T, F, Specs...>
-    [[nodiscard]] constexpr auto root_bind_into(F&& f, Specs&&... specs) && {
-        return std::move(*this).template node<0>(
-            yorch::bind_into<T>(std::forward<F>(f), std::forward<Specs>(specs)...));
-    }
-
-    /// Convenience syntax for `root(yorch::catch_as_failure(yorch::bind(...)))`.
-    template <typename F, typename... Specs>
+    template <typename F>
         requires (sizeof...(Nodes) == 0) &&
-                 detail::bind_signature_matches<F, Specs...> &&
-                 (!detail::catch_policy_like<std::remove_reference_t<F>>)
-    [[nodiscard]] constexpr auto root_catch_as_failure(F&& f, Specs&&... specs) const& {
-        return root(yorch::catch_as_failure(
-            yorch::bind(std::forward<F>(f), std::forward<Specs>(specs)...)));
+                 detail::ordinary_callable_task_argument<F>
+    [[nodiscard]] constexpr auto root(F&& f) && {
+        return detail::tree_node_binder<
+            task_tree_builder,
+            0,
+            std::decay_t<F>,
+            detail::no_fanout_policy_tag,
+            adapter_chain<>
+        > {
+            std::move(*this),
+            std::forward<F>(f),
+            {},
+            {}
+        };
     }
 
-    /// Rvalue overload of `root_catch_as_failure(...)`.
-    template <typename F, typename... Specs>
+    template <typename F, typename FanoutPolicy>
         requires (sizeof...(Nodes) == 0) &&
-                 detail::bind_signature_matches<F, Specs...> &&
-                 (!detail::catch_policy_like<std::remove_reference_t<F>>)
-    [[nodiscard]] constexpr auto root_catch_as_failure(F&& f, Specs&&... specs) && {
-        return std::move(*this).template node<0>(yorch::catch_as_failure(
-            yorch::bind(std::forward<F>(f), std::forward<Specs>(specs)...)));
+                 detail::ordinary_callable_task_argument<F> &&
+                 detail::fanout_policy<FanoutPolicy>
+    [[nodiscard]] constexpr auto root(F&& f, FanoutPolicy&& fanout_policy) && {
+        return detail::tree_node_binder<
+            task_tree_builder,
+            0,
+            std::decay_t<F>,
+            std::decay_t<FanoutPolicy>,
+            adapter_chain<>
+        > {
+            std::move(*this),
+            std::forward<F>(f),
+            std::forward<FanoutPolicy>(fanout_policy),
+            {}
+        };
     }
 
-    /// Convenience syntax for `root(yorch::catch_as_failure(yorch::bind_into<T>(...)))`.
-    template <typename T, typename F, typename... Specs>
+    template <typename F, typename AdapterChain>
         requires (sizeof...(Nodes) == 0) &&
-                 detail::bind_into_signature_matches<T, F, Specs...> &&
-                 (!detail::catch_policy_like<std::remove_reference_t<F>>)
-    [[nodiscard]] constexpr auto root_catch_as_failure_into(F&& f, Specs&&... specs) const& {
-        return root(yorch::catch_as_failure(
-            yorch::bind_into<T>(std::forward<F>(f), std::forward<Specs>(specs)...)));
+                 detail::ordinary_callable_task_argument<F> &&
+                 detail::adapter_chain_like<AdapterChain>
+    [[nodiscard]] constexpr auto root(F&& f, AdapterChain&& adapter_specs) && {
+        return detail::tree_node_binder<
+            task_tree_builder,
+            0,
+            std::decay_t<F>,
+            detail::no_fanout_policy_tag,
+            std::decay_t<AdapterChain>
+        > {
+            std::move(*this),
+            std::forward<F>(f),
+            {},
+            std::forward<AdapterChain>(adapter_specs)
+        };
     }
 
-    /// Rvalue overload of `root_catch_as_failure_into(...)`.
-    template <typename T, typename F, typename... Specs>
+    template <typename F, typename FanoutPolicy, typename AdapterChain>
         requires (sizeof...(Nodes) == 0) &&
-                 detail::bind_into_signature_matches<T, F, Specs...> &&
-                 (!detail::catch_policy_like<std::remove_reference_t<F>>)
-    [[nodiscard]] constexpr auto root_catch_as_failure_into(F&& f, Specs&&... specs) && {
-        return std::move(*this).template node<0>(yorch::catch_as_failure(
-            yorch::bind_into<T>(std::forward<F>(f), std::forward<Specs>(specs)...)));
+                 detail::ordinary_callable_task_argument<F> &&
+                 detail::fanout_policy<FanoutPolicy> &&
+                 detail::adapter_chain_like<AdapterChain>
+    [[nodiscard]] constexpr auto root(F&& f, FanoutPolicy&& fanout_policy, AdapterChain&& adapter_specs) && {
+        return detail::tree_node_binder<
+            task_tree_builder,
+            0,
+            std::decay_t<F>,
+            std::decay_t<FanoutPolicy>,
+            std::decay_t<AdapterChain>
+        > {
+            std::move(*this),
+            std::forward<F>(f),
+            std::forward<FanoutPolicy>(fanout_policy),
+            std::forward<AdapterChain>(adapter_specs)
+        };
     }
 
-    /// Policy-based `catch_as_failure(...)` root sugar.
-    template <typename Policy, typename F, typename... Specs>
+    template <typename Task>
         requires (sizeof...(Nodes) == 0) &&
-                 detail::catch_policy_like<std::remove_reference_t<Policy>> &&
-                 detail::bind_signature_matches<F, Specs...>
-    [[nodiscard]] constexpr auto root_catch_as_failure(
-        Policy&& policy,
-        F&& f,
-        Specs&&... specs) const& {
-        return root(yorch::catch_as_failure(
-            yorch::bind(std::forward<F>(f), std::forward<Specs>(specs)...),
-            std::forward<Policy>(policy)));
+                 detail::direct_output_task_object_argument<Task>
+    [[nodiscard]] constexpr auto root_into(Task&& task) && {
+        return std::move(*this).template node_into<0>(std::forward<Task>(task));
     }
 
-    /// Rvalue overload of policy-based `root_catch_as_failure(...)`.
-    template <typename Policy, typename F, typename... Specs>
+    template <typename Task, typename FanoutPolicy>
         requires (sizeof...(Nodes) == 0) &&
-                 detail::catch_policy_like<std::remove_reference_t<Policy>> &&
-                 detail::bind_signature_matches<F, Specs...>
-    [[nodiscard]] constexpr auto root_catch_as_failure(
-        Policy&& policy,
-        F&& f,
-        Specs&&... specs) && {
-        return std::move(*this).template node<0>(yorch::catch_as_failure(
-            yorch::bind(std::forward<F>(f), std::forward<Specs>(specs)...),
-            std::forward<Policy>(policy)));
+                 detail::direct_output_task_object_argument<Task> &&
+                 detail::fanout_policy<FanoutPolicy>
+    [[nodiscard]] constexpr auto root_into(Task&& task, FanoutPolicy&& fanout_policy) && {
+        return std::move(*this).template node_into<0>(std::forward<Task>(task), std::forward<FanoutPolicy>(fanout_policy));
     }
 
-    /// Policy-based `catch_as_failure(...)` sugar for direct-output roots.
-    template <typename T, typename Policy, typename F, typename... Specs>
+    template <typename F>
         requires (sizeof...(Nodes) == 0) &&
-                 detail::catch_policy_like<std::remove_reference_t<Policy>> &&
-                 detail::bind_into_signature_matches<T, F, Specs...>
-    [[nodiscard]] constexpr auto root_catch_as_failure_into(
-        Policy&& policy,
-        F&& f,
-        Specs&&... specs) const& {
-        return root(yorch::catch_as_failure(
-            yorch::bind_into<T>(std::forward<F>(f), std::forward<Specs>(specs)...),
-            std::forward<Policy>(policy)));
+                 detail::direct_output_callable_task_argument<F>
+    [[nodiscard]] constexpr auto root_into(F&& f) && {
+        return detail::tree_node_into_binder<
+            task_tree_builder,
+            0,
+            std::decay_t<F>,
+            detail::no_fanout_policy_tag,
+            adapter_chain<>
+        > {
+            std::move(*this),
+            std::forward<F>(f),
+            {},
+            {}
+        };
     }
 
-    /// Rvalue overload of policy-based `root_catch_as_failure_into(...)`.
-    template <typename T, typename Policy, typename F, typename... Specs>
+    template <typename F, typename FanoutPolicy>
         requires (sizeof...(Nodes) == 0) &&
-                 detail::catch_policy_like<std::remove_reference_t<Policy>> &&
-                 detail::bind_into_signature_matches<T, F, Specs...>
-    [[nodiscard]] constexpr auto root_catch_as_failure_into(
-        Policy&& policy,
-        F&& f,
-        Specs&&... specs) && {
-        return std::move(*this).template node<0>(yorch::catch_as_failure(
-            yorch::bind_into<T>(std::forward<F>(f), std::forward<Specs>(specs)...),
-            std::forward<Policy>(policy)));
+                 detail::direct_output_callable_task_argument<F> &&
+                 detail::fanout_policy<FanoutPolicy>
+    [[nodiscard]] constexpr auto root_into(F&& f, FanoutPolicy&& fanout_policy) && {
+        return detail::tree_node_into_binder<
+            task_tree_builder,
+            0,
+            std::decay_t<F>,
+            std::decay_t<FanoutPolicy>,
+            adapter_chain<>
+        > {
+            std::move(*this),
+            std::forward<F>(f),
+            std::forward<FanoutPolicy>(fanout_policy),
+            {}
+        };
     }
 
-    /// Convenience syntax for `root(yorch::with_retry(...))`.
-    template <typename Policy, typename F, typename... Specs>
+    template <typename F, typename AdapterChain>
         requires (sizeof...(Nodes) == 0) &&
-                 retry_policy<std::decay_t<Policy>> &&
-                 detail::bind_signature_matches<F, Specs...>
-    [[nodiscard]] constexpr auto root_with_retry(
-        Policy&& policy,
-        F&& f,
-        Specs&&... specs) const& {
-        return root(yorch::with_retry(
-            yorch::bind(std::forward<F>(f), std::forward<Specs>(specs)...),
-            std::forward<Policy>(policy)));
+                 detail::direct_output_callable_task_argument<F> &&
+                 detail::adapter_chain_like<AdapterChain>
+    [[nodiscard]] constexpr auto root_into(F&& f, AdapterChain&& adapter_specs) && {
+        return detail::tree_node_into_binder<
+            task_tree_builder,
+            0,
+            std::decay_t<F>,
+            detail::no_fanout_policy_tag,
+            std::decay_t<AdapterChain>
+        > {
+            std::move(*this),
+            std::forward<F>(f),
+            {},
+            std::forward<AdapterChain>(adapter_specs)
+        };
     }
 
-    /// Rvalue overload of `root_with_retry(...)`.
-    template <typename Policy, typename F, typename... Specs>
+    template <typename F, typename FanoutPolicy, typename AdapterChain>
         requires (sizeof...(Nodes) == 0) &&
-                 retry_policy<std::decay_t<Policy>> &&
-                 detail::bind_signature_matches<F, Specs...>
-    [[nodiscard]] constexpr auto root_with_retry(
-        Policy&& policy,
-        F&& f,
-        Specs&&... specs) && {
-        return std::move(*this).template node<0>(yorch::with_retry(
-            yorch::bind(std::forward<F>(f), std::forward<Specs>(specs)...),
-            std::forward<Policy>(policy)));
+                 detail::direct_output_callable_task_argument<F> &&
+                 detail::fanout_policy<FanoutPolicy> &&
+                 detail::adapter_chain_like<AdapterChain>
+    [[nodiscard]] constexpr auto root_into(F&& f, FanoutPolicy&& fanout_policy, AdapterChain&& adapter_specs) && {
+        return detail::tree_node_into_binder<
+            task_tree_builder,
+            0,
+            std::decay_t<F>,
+            std::decay_t<FanoutPolicy>,
+            std::decay_t<AdapterChain>
+        > {
+            std::move(*this),
+            std::forward<F>(f),
+            std::forward<FanoutPolicy>(fanout_policy),
+            std::forward<AdapterChain>(adapter_specs)
+        };
     }
 
-    /// Convenience syntax for `root(yorch::with_retry(yorch::bind_into<T>(...)))`.
-    template <typename T, typename Policy, typename F, typename... Specs>
-        requires (sizeof...(Nodes) == 0) &&
-                 retry_policy<std::decay_t<Policy>> &&
-                 detail::bind_into_signature_matches<T, F, Specs...>
-    [[nodiscard]] constexpr auto root_with_retry_into(
-        Policy&& policy,
-        F&& f,
-        Specs&&... specs) const& {
-        return root(yorch::with_retry(
-            yorch::bind_into<T>(std::forward<F>(f), std::forward<Specs>(specs)...),
-            std::forward<Policy>(policy)));
-    }
-
-    /// Rvalue overload of `root_with_retry_into(...)`.
-    template <typename T, typename Policy, typename F, typename... Specs>
-        requires (sizeof...(Nodes) == 0) &&
-                 retry_policy<std::decay_t<Policy>> &&
-                 detail::bind_into_signature_matches<T, F, Specs...>
-    [[nodiscard]] constexpr auto root_with_retry_into(
-        Policy&& policy,
-        F&& f,
-        Specs&&... specs) && {
-        return std::move(*this).template node<0>(yorch::with_retry(
-            yorch::bind_into<T>(std::forward<F>(f), std::forward<Specs>(specs)...),
-            std::forward<Policy>(policy)));
-    }
-
-    /**
-     * @brief Appends a node onto an lvalue builder.
-     *
-     * Structural rules for this phase:
-     * - the first node must be `level 0` or be introduced through `root(...)`
-     * - later nodes cannot descend more than one level relative to the previous node
-     * - later nodes cannot start another `level 0` root
-     *
-     * @tparam Level Compile-time tree depth of the new node.
-     * @tparam Task Task object type.
-     * @param task Task to store in the appended node record.
-     * @return A new builder value containing the extra node.
-     */
     template <std::size_t Level, typename Task>
-        requires (detail::append_level_valid_v<Level, Nodes...>)
+        requires (detail::append_level_valid_v<Level, Nodes...>) &&
+                 detail::ordinary_task_object_argument<Task>
     [[nodiscard]] constexpr auto node(Task&& task) const& {
         using next_node_t = detail::task_tree_node_t<Level, Task>;
-
         return task_tree_builder<Nodes..., next_node_t> {
-            std::tuple_cat(
-                nodes,
-                std::tuple<next_node_t> {
-                    next_node_t {std::forward<Task>(task)}
-                })
+            std::tuple_cat(nodes, std::tuple<next_node_t> {next_node_t {std::forward<Task>(task)}})
         };
     }
 
     template <std::size_t Level, typename Task, typename FanoutPolicy>
         requires (detail::append_level_valid_v<Level, Nodes...>) &&
+                 detail::ordinary_task_object_argument<Task> &&
                  detail::fanout_policy<FanoutPolicy>
                  // NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
-    [[nodiscard]] constexpr auto node(Task&& task, FanoutPolicy&& fanout_policy) const& {
-        static_cast<void>(fanout_policy);
+    [[nodiscard]] constexpr auto node(Task&& task, FanoutPolicy&&) const& {
         using next_node_t = detail::task_tree_node_t<Level, Task, FanoutPolicy>;
-
         return task_tree_builder<Nodes..., next_node_t> {
-            std::tuple_cat(
-                nodes,
-                std::tuple<next_node_t> {
-                    next_node_t {std::forward<Task>(task)}
-                })
+            std::tuple_cat(nodes, std::tuple<next_node_t> {next_node_t {std::forward<Task>(task)}})
         };
     }
 
-    /**
-     * @brief Appends a node onto an rvalue builder, moving existing nodes.
-     *
-     * This overload is important for chains that already contain move-only
-     * task objects.
-     *
-     * @tparam Level Compile-time tree depth of the new node.
-     * @tparam Task Task object type.
-     * @param task Task to store in the appended node record.
-     * @return A new builder value containing the extra node.
-     */
     template <std::size_t Level, typename Task>
-        requires (detail::append_level_valid_v<Level, Nodes...>)
+        requires (detail::append_level_valid_v<Level, Nodes...>) &&
+                 detail::direct_output_task_object_argument<Task>
+    [[nodiscard]] constexpr auto node_into(Task&& task) const& {
+        using next_node_t = detail::task_tree_node_t<Level, Task>;
+        return task_tree_builder<Nodes..., next_node_t> {
+            std::tuple_cat(nodes, std::tuple<next_node_t> {next_node_t {std::forward<Task>(task)}})
+        };
+    }
+
+    template <std::size_t Level, typename Task, typename FanoutPolicy>
+        requires (detail::append_level_valid_v<Level, Nodes...>) &&
+                 detail::direct_output_task_object_argument<Task> &&
+                 detail::fanout_policy<FanoutPolicy>
+                 // NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
+    [[nodiscard]] constexpr auto node_into(Task&& task, FanoutPolicy&&) const& {
+        using next_node_t = detail::task_tree_node_t<Level, Task, FanoutPolicy>;
+        return task_tree_builder<Nodes..., next_node_t> {
+            std::tuple_cat(nodes, std::tuple<next_node_t> {next_node_t {std::forward<Task>(task)}})
+        };
+    }
+
+    template <std::size_t Level, typename F>
+        requires (detail::append_level_valid_v<Level, Nodes...>) &&
+                 detail::ordinary_callable_task_argument<F>
+    [[nodiscard]] constexpr auto node(F&& f) const& {
+        return detail::tree_node_binder<
+            const task_tree_builder*,
+            Level,
+            std::decay_t<F>,
+            detail::no_fanout_policy_tag,
+            adapter_chain<>
+        > {
+            this,
+            std::forward<F>(f),
+            {},
+            {}
+        };
+    }
+
+    template <std::size_t Level, typename F, typename FanoutPolicy>
+        requires (detail::append_level_valid_v<Level, Nodes...>) &&
+                 detail::ordinary_callable_task_argument<F> &&
+                 detail::fanout_policy<FanoutPolicy>
+    [[nodiscard]] constexpr auto node(F&& f, FanoutPolicy&& fanout_policy) const& {
+        return detail::tree_node_binder<
+            const task_tree_builder*,
+            Level,
+            std::decay_t<F>,
+            std::decay_t<FanoutPolicy>,
+            adapter_chain<>
+        > {
+            this,
+            std::forward<F>(f),
+            std::forward<FanoutPolicy>(fanout_policy),
+            {}
+        };
+    }
+
+    template <std::size_t Level, typename F, typename AdapterChain>
+        requires (detail::append_level_valid_v<Level, Nodes...>) &&
+                 detail::ordinary_callable_task_argument<F> &&
+                 detail::adapter_chain_like<AdapterChain>
+    [[nodiscard]] constexpr auto node(F&& f, AdapterChain&& adapter_specs) const& {
+        return detail::tree_node_binder<
+            const task_tree_builder*,
+            Level,
+            std::decay_t<F>,
+            detail::no_fanout_policy_tag,
+            std::decay_t<AdapterChain>
+        > {
+            this,
+            std::forward<F>(f),
+            {},
+            std::forward<AdapterChain>(adapter_specs)
+        };
+    }
+
+    template <std::size_t Level, typename F, typename FanoutPolicy, typename AdapterChain>
+        requires (detail::append_level_valid_v<Level, Nodes...>) &&
+                 detail::ordinary_callable_task_argument<F> &&
+                 detail::fanout_policy<FanoutPolicy> &&
+                 detail::adapter_chain_like<AdapterChain>
+    [[nodiscard]] constexpr auto node(F&& f, FanoutPolicy&& fanout_policy, AdapterChain&& adapter_specs) const& {
+        return detail::tree_node_binder<
+            const task_tree_builder*,
+            Level,
+            std::decay_t<F>,
+            std::decay_t<FanoutPolicy>,
+            std::decay_t<AdapterChain>
+        > {
+            this,
+            std::forward<F>(f),
+            std::forward<FanoutPolicy>(fanout_policy),
+            std::forward<AdapterChain>(adapter_specs)
+        };
+    }
+
+    template <std::size_t Level, typename F>
+        requires (detail::append_level_valid_v<Level, Nodes...>) &&
+                 detail::direct_output_callable_task_argument<F>
+    [[nodiscard]] constexpr auto node_into(F&& f) const& {
+        return detail::tree_node_into_binder<
+            const task_tree_builder*,
+            Level,
+            std::decay_t<F>,
+            detail::no_fanout_policy_tag,
+            adapter_chain<>
+        > {
+            this,
+            std::forward<F>(f),
+            {},
+            {}
+        };
+    }
+
+    template <std::size_t Level, typename F, typename FanoutPolicy>
+        requires (detail::append_level_valid_v<Level, Nodes...>) &&
+                 detail::direct_output_callable_task_argument<F> &&
+                 detail::fanout_policy<FanoutPolicy>
+    [[nodiscard]] constexpr auto node_into(F&& f, FanoutPolicy&& fanout_policy) const& {
+        return detail::tree_node_into_binder<
+            const task_tree_builder*,
+            Level,
+            std::decay_t<F>,
+            std::decay_t<FanoutPolicy>,
+            adapter_chain<>
+        > {
+            this,
+            std::forward<F>(f),
+            std::forward<FanoutPolicy>(fanout_policy),
+            {}
+        };
+    }
+
+    template <std::size_t Level, typename F, typename AdapterChain>
+        requires (detail::append_level_valid_v<Level, Nodes...>) &&
+                 detail::direct_output_callable_task_argument<F> &&
+                 detail::adapter_chain_like<AdapterChain>
+    [[nodiscard]] constexpr auto node_into(F&& f, AdapterChain&& adapter_specs) const& {
+        return detail::tree_node_into_binder<
+            const task_tree_builder*,
+            Level,
+            std::decay_t<F>,
+            detail::no_fanout_policy_tag,
+            std::decay_t<AdapterChain>
+        > {
+            this,
+            std::forward<F>(f),
+            {},
+            std::forward<AdapterChain>(adapter_specs)
+        };
+    }
+
+    template <std::size_t Level, typename F, typename FanoutPolicy, typename AdapterChain>
+        requires (detail::append_level_valid_v<Level, Nodes...>) &&
+                 detail::direct_output_callable_task_argument<F> &&
+                 detail::fanout_policy<FanoutPolicy> &&
+                 detail::adapter_chain_like<AdapterChain>
+    [[nodiscard]] constexpr auto node_into(F&& f, FanoutPolicy&& fanout_policy, AdapterChain&& adapter_specs) const& {
+        return detail::tree_node_into_binder<
+            const task_tree_builder*,
+            Level,
+            std::decay_t<F>,
+            std::decay_t<FanoutPolicy>,
+            std::decay_t<AdapterChain>
+        > {
+            this,
+            std::forward<F>(f),
+            std::forward<FanoutPolicy>(fanout_policy),
+            std::forward<AdapterChain>(adapter_specs)
+        };
+    }
+
+    template <std::size_t Level, typename Task>
+        requires (detail::append_level_valid_v<Level, Nodes...>) &&
+                 detail::ordinary_task_object_argument<Task>
     [[nodiscard]] constexpr auto node(Task&& task) && {
         using next_node_t = detail::task_tree_node_t<Level, Task>;
-
         return task_tree_builder<Nodes..., next_node_t> {
-            std::tuple_cat(
-                std::move(nodes),
-                std::tuple<next_node_t> {
-                    next_node_t {std::forward<Task>(task)}
-                })
+            std::tuple_cat(std::move(nodes), std::tuple<next_node_t> {next_node_t {std::forward<Task>(task)}})
         };
     }
 
     template <std::size_t Level, typename Task, typename FanoutPolicy>
         requires (detail::append_level_valid_v<Level, Nodes...>) &&
+                 detail::ordinary_task_object_argument<Task> &&
                  detail::fanout_policy<FanoutPolicy>
                  // NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
-    [[nodiscard]] constexpr auto node(Task&& task, FanoutPolicy&& fanout_policy) && {
-        static_cast<void>(fanout_policy);
+    [[nodiscard]] constexpr auto node(Task&& task, FanoutPolicy&&) && {
         using next_node_t = detail::task_tree_node_t<Level, Task, FanoutPolicy>;
-
         return task_tree_builder<Nodes..., next_node_t> {
-            std::tuple_cat(
-                std::move(nodes),
-                std::tuple<next_node_t> {
-                    next_node_t {std::forward<Task>(task)}
-                })
+            std::tuple_cat(std::move(nodes), std::tuple<next_node_t> {next_node_t {std::forward<Task>(task)}})
         };
     }
 
-    /// Convenience syntax for `node<Level>(yorch::bind(f, specs...))`.
-    template <std::size_t Level, typename F, typename... Specs>
+    template <std::size_t Level, typename Task>
         requires (detail::append_level_valid_v<Level, Nodes...>) &&
-                 detail::bind_signature_matches<F, Specs...>
-    [[nodiscard]] constexpr auto node_bind(F&& f, Specs&&... specs) const& {
-        return node<Level>(yorch::bind(std::forward<F>(f), std::forward<Specs>(specs)...));
+                 detail::direct_output_task_object_argument<Task>
+    [[nodiscard]] constexpr auto node_into(Task&& task) && {
+        using next_node_t = detail::task_tree_node_t<Level, Task>;
+        return task_tree_builder<Nodes..., next_node_t> {
+            std::tuple_cat(std::move(nodes), std::tuple<next_node_t> {next_node_t {std::forward<Task>(task)}})
+        };
     }
 
-    /// Rvalue overload of `node_bind(...)`.
-    template <std::size_t Level, typename F, typename... Specs>
+    template <std::size_t Level, typename Task, typename FanoutPolicy>
         requires (detail::append_level_valid_v<Level, Nodes...>) &&
-                 detail::bind_signature_matches<F, Specs...>
-    [[nodiscard]] constexpr auto node_bind(F&& f, Specs&&... specs) && {
-        return std::move(*this).template node<Level>(
-            yorch::bind(std::forward<F>(f), std::forward<Specs>(specs)...));
+                 detail::direct_output_task_object_argument<Task> &&
+                 detail::fanout_policy<FanoutPolicy>
+                 // NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
+    [[nodiscard]] constexpr auto node_into(Task&& task, FanoutPolicy&&) && {
+        using next_node_t = detail::task_tree_node_t<Level, Task, FanoutPolicy>;
+        return task_tree_builder<Nodes..., next_node_t> {
+            std::tuple_cat(std::move(nodes), std::tuple<next_node_t> {next_node_t {std::forward<Task>(task)}})
+        };
     }
 
-    /// Convenience syntax for `node<Level>(yorch::bind_into<T>(f, specs...))`.
-    template <std::size_t Level, typename T, typename F, typename... Specs>
+    template <std::size_t Level, typename F>
         requires (detail::append_level_valid_v<Level, Nodes...>) &&
-                 detail::bind_into_signature_matches<T, F, Specs...>
-    [[nodiscard]] constexpr auto node_bind_into(F&& f, Specs&&... specs) const& {
-        return node<Level>(yorch::bind_into<T>(std::forward<F>(f), std::forward<Specs>(specs)...));
+                 detail::ordinary_callable_task_argument<F>
+    [[nodiscard]] constexpr auto node(F&& f) && {
+        return detail::tree_node_binder<
+            task_tree_builder,
+            Level,
+            std::decay_t<F>,
+            detail::no_fanout_policy_tag,
+            adapter_chain<>
+        > {
+            std::move(*this),
+            std::forward<F>(f),
+            {},
+            {}
+        };
     }
 
-    /// Rvalue overload of `node_bind_into(...)`.
-    template <std::size_t Level, typename T, typename F, typename... Specs>
+    template <std::size_t Level, typename F, typename FanoutPolicy>
         requires (detail::append_level_valid_v<Level, Nodes...>) &&
-                 detail::bind_into_signature_matches<T, F, Specs...>
-    [[nodiscard]] constexpr auto node_bind_into(F&& f, Specs&&... specs) && {
-        return std::move(*this).template node<Level>(
-            yorch::bind_into<T>(std::forward<F>(f), std::forward<Specs>(specs)...));
+                 detail::ordinary_callable_task_argument<F> &&
+                 detail::fanout_policy<FanoutPolicy>
+    [[nodiscard]] constexpr auto node(F&& f, FanoutPolicy&& fanout_policy) && {
+        return detail::tree_node_binder<
+            task_tree_builder,
+            Level,
+            std::decay_t<F>,
+            std::decay_t<FanoutPolicy>,
+            adapter_chain<>
+        > {
+            std::move(*this),
+            std::forward<F>(f),
+            std::forward<FanoutPolicy>(fanout_policy),
+            {}
+        };
     }
 
-    /// Convenience syntax for `node<Level>(yorch::catch_as_failure(yorch::bind(...)))`.
-    template <std::size_t Level, typename F, typename... Specs>
+    template <std::size_t Level, typename F, typename AdapterChain>
         requires (detail::append_level_valid_v<Level, Nodes...>) &&
-                 detail::bind_signature_matches<F, Specs...> &&
-                 (!detail::catch_policy_like<std::remove_reference_t<F>>)
-    [[nodiscard]] constexpr auto node_catch_as_failure(F&& f, Specs&&... specs) const& {
-        return node<Level>(yorch::catch_as_failure(
-            yorch::bind(std::forward<F>(f), std::forward<Specs>(specs)...)));
+                 detail::ordinary_callable_task_argument<F> &&
+                 detail::adapter_chain_like<AdapterChain>
+    [[nodiscard]] constexpr auto node(F&& f, AdapterChain&& adapter_specs) && {
+        return detail::tree_node_binder<
+            task_tree_builder,
+            Level,
+            std::decay_t<F>,
+            detail::no_fanout_policy_tag,
+            std::decay_t<AdapterChain>
+        > {
+            std::move(*this),
+            std::forward<F>(f),
+            {},
+            std::forward<AdapterChain>(adapter_specs)
+        };
     }
 
-    /// Rvalue overload of `node_catch_as_failure(...)`.
-    template <std::size_t Level, typename F, typename... Specs>
+    template <std::size_t Level, typename F, typename FanoutPolicy, typename AdapterChain>
         requires (detail::append_level_valid_v<Level, Nodes...>) &&
-                 detail::bind_signature_matches<F, Specs...> &&
-                 (!detail::catch_policy_like<std::remove_reference_t<F>>)
-    [[nodiscard]] constexpr auto node_catch_as_failure(F&& f, Specs&&... specs) && {
-        return std::move(*this).template node<Level>(yorch::catch_as_failure(
-            yorch::bind(std::forward<F>(f), std::forward<Specs>(specs)...)));
+                 detail::ordinary_callable_task_argument<F> &&
+                 detail::fanout_policy<FanoutPolicy> &&
+                 detail::adapter_chain_like<AdapterChain>
+    [[nodiscard]] constexpr auto node(F&& f, FanoutPolicy&& fanout_policy, AdapterChain&& adapter_specs) && {
+        return detail::tree_node_binder<
+            task_tree_builder,
+            Level,
+            std::decay_t<F>,
+            std::decay_t<FanoutPolicy>,
+            std::decay_t<AdapterChain>
+        > {
+            std::move(*this),
+            std::forward<F>(f),
+            std::forward<FanoutPolicy>(fanout_policy),
+            std::forward<AdapterChain>(adapter_specs)
+        };
     }
 
-    /// Convenience syntax for `node<Level>(yorch::catch_as_failure(yorch::bind_into<T>(...)))`.
-    template <std::size_t Level, typename T, typename F, typename... Specs>
+    template <std::size_t Level, typename F>
         requires (detail::append_level_valid_v<Level, Nodes...>) &&
-                 detail::bind_into_signature_matches<T, F, Specs...> &&
-                 (!detail::catch_policy_like<std::remove_reference_t<F>>)
-    [[nodiscard]] constexpr auto node_catch_as_failure_into(F&& f, Specs&&... specs) const& {
-        return node<Level>(yorch::catch_as_failure(
-            yorch::bind_into<T>(std::forward<F>(f), std::forward<Specs>(specs)...)));
+                 detail::direct_output_callable_task_argument<F>
+    [[nodiscard]] constexpr auto node_into(F&& f) && {
+        return detail::tree_node_into_binder<
+            task_tree_builder,
+            Level,
+            std::decay_t<F>,
+            detail::no_fanout_policy_tag,
+            adapter_chain<>
+        > {
+            std::move(*this),
+            std::forward<F>(f),
+            {},
+            {}
+        };
     }
 
-    /// Rvalue overload of `node_catch_as_failure_into(...)`.
-    template <std::size_t Level, typename T, typename F, typename... Specs>
+    template <std::size_t Level, typename F, typename FanoutPolicy>
         requires (detail::append_level_valid_v<Level, Nodes...>) &&
-                 detail::bind_into_signature_matches<T, F, Specs...> &&
-                 (!detail::catch_policy_like<std::remove_reference_t<F>>)
-    [[nodiscard]] constexpr auto node_catch_as_failure_into(F&& f, Specs&&... specs) && {
-        return std::move(*this).template node<Level>(yorch::catch_as_failure(
-            yorch::bind_into<T>(std::forward<F>(f), std::forward<Specs>(specs)...)));
+                 detail::direct_output_callable_task_argument<F> &&
+                 detail::fanout_policy<FanoutPolicy>
+    [[nodiscard]] constexpr auto node_into(F&& f, FanoutPolicy&& fanout_policy) && {
+        return detail::tree_node_into_binder<
+            task_tree_builder,
+            Level,
+            std::decay_t<F>,
+            std::decay_t<FanoutPolicy>,
+            adapter_chain<>
+        > {
+            std::move(*this),
+            std::forward<F>(f),
+            std::forward<FanoutPolicy>(fanout_policy),
+            {}
+        };
     }
 
-    /// Policy-based `catch_as_failure(...)` node sugar.
-    template <std::size_t Level, typename Policy, typename F, typename... Specs>
+    template <std::size_t Level, typename F, typename AdapterChain>
         requires (detail::append_level_valid_v<Level, Nodes...>) &&
-                 detail::catch_policy_like<std::remove_reference_t<Policy>> &&
-                 detail::bind_signature_matches<F, Specs...>
-    [[nodiscard]] constexpr auto node_catch_as_failure(
-        Policy&& policy,
-        F&& f,
-        Specs&&... specs) const& {
-        return node<Level>(yorch::catch_as_failure(
-            yorch::bind(std::forward<F>(f), std::forward<Specs>(specs)...),
-            std::forward<Policy>(policy)));
+                 detail::direct_output_callable_task_argument<F> &&
+                 detail::adapter_chain_like<AdapterChain>
+    [[nodiscard]] constexpr auto node_into(F&& f, AdapterChain&& adapter_specs) && {
+        return detail::tree_node_into_binder<
+            task_tree_builder,
+            Level,
+            std::decay_t<F>,
+            detail::no_fanout_policy_tag,
+            std::decay_t<AdapterChain>
+        > {
+            std::move(*this),
+            std::forward<F>(f),
+            {},
+            std::forward<AdapterChain>(adapter_specs)
+        };
     }
 
-    /// Rvalue overload of policy-based `node_catch_as_failure(...)`.
-    template <std::size_t Level, typename Policy, typename F, typename... Specs>
+    template <std::size_t Level, typename F, typename FanoutPolicy, typename AdapterChain>
         requires (detail::append_level_valid_v<Level, Nodes...>) &&
-                 detail::catch_policy_like<std::remove_reference_t<Policy>> &&
-                 detail::bind_signature_matches<F, Specs...>
-    [[nodiscard]] constexpr auto node_catch_as_failure(
-        Policy&& policy,
-        F&& f,
-        Specs&&... specs) && {
-        return std::move(*this).template node<Level>(yorch::catch_as_failure(
-            yorch::bind(std::forward<F>(f), std::forward<Specs>(specs)...),
-            std::forward<Policy>(policy)));
+                 detail::direct_output_callable_task_argument<F> &&
+                 detail::fanout_policy<FanoutPolicy> &&
+                 detail::adapter_chain_like<AdapterChain>
+    [[nodiscard]] constexpr auto node_into(F&& f, FanoutPolicy&& fanout_policy, AdapterChain&& adapter_specs) && {
+        return detail::tree_node_into_binder<
+            task_tree_builder,
+            Level,
+            std::decay_t<F>,
+            std::decay_t<FanoutPolicy>,
+            std::decay_t<AdapterChain>
+        > {
+            std::move(*this),
+            std::forward<F>(f),
+            std::forward<FanoutPolicy>(fanout_policy),
+            std::forward<AdapterChain>(adapter_specs)
+        };
     }
 
-    /// Policy-based `catch_as_failure(...)` sugar for direct-output nodes.
-    template <std::size_t Level, typename T, typename Policy, typename F, typename... Specs>
-        requires (detail::append_level_valid_v<Level, Nodes...>) &&
-                 detail::catch_policy_like<std::remove_reference_t<Policy>> &&
-                 detail::bind_into_signature_matches<T, F, Specs...>
-    [[nodiscard]] constexpr auto node_catch_as_failure_into(
-        Policy&& policy,
-        F&& f,
-        Specs&&... specs) const& {
-        return node<Level>(yorch::catch_as_failure(
-            yorch::bind_into<T>(std::forward<F>(f), std::forward<Specs>(specs)...),
-            std::forward<Policy>(policy)));
+    template <typename Task>
+        requires (sizeof...(Nodes) == 0) &&
+                 detail::direct_output_task_object_argument<Task>
+                 // NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
+    constexpr void root(Task&&) const& {
+        static_assert(
+            detail::always_false_v<Task>,
+            "yorch::task_tree.root(...) received a direct-output task; use root_into(...) instead.");
     }
 
-    /// Rvalue overload of policy-based `node_catch_as_failure_into(...)`.
-    template <std::size_t Level, typename T, typename Policy, typename F, typename... Specs>
-        requires (detail::append_level_valid_v<Level, Nodes...>) &&
-                 detail::catch_policy_like<std::remove_reference_t<Policy>> &&
-                 detail::bind_into_signature_matches<T, F, Specs...>
-    [[nodiscard]] constexpr auto node_catch_as_failure_into(
-        Policy&& policy,
-        F&& f,
-        Specs&&... specs) && {
-        return std::move(*this).template node<Level>(yorch::catch_as_failure(
-            yorch::bind_into<T>(std::forward<F>(f), std::forward<Specs>(specs)...),
-            std::forward<Policy>(policy)));
+    template <typename Task, typename FanoutPolicy>
+        requires (sizeof...(Nodes) == 0) &&
+                 detail::direct_output_task_object_argument<Task> &&
+                 detail::fanout_policy<FanoutPolicy>
+                 // NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
+    constexpr void root(Task&&, FanoutPolicy&&) const& {
+        static_assert(
+            detail::always_false_v<std::tuple<Task, FanoutPolicy>>,
+            "yorch::task_tree.root(...) received a direct-output task; use root_into(...) instead.");
     }
 
-    /// Convenience syntax for `node<Level>(yorch::with_retry(...))`.
-    template <std::size_t Level, typename Policy, typename F, typename... Specs>
-        requires (detail::append_level_valid_v<Level, Nodes...>) &&
-                 retry_policy<std::decay_t<Policy>> &&
-                 detail::bind_signature_matches<F, Specs...>
-    [[nodiscard]] constexpr auto node_with_retry(
-        Policy&& policy,
-        F&& f,
-        Specs&&... specs) const& {
-        return node<Level>(yorch::with_retry(
-            yorch::bind(std::forward<F>(f), std::forward<Specs>(specs)...),
-            std::forward<Policy>(policy)));
+    template <typename F>
+        requires (sizeof...(Nodes) == 0) &&
+                 detail::direct_output_callable_task_argument<F>
+                 // NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
+    constexpr void root(F&&) const& {
+        static_assert(
+            detail::always_false_v<F>,
+            "yorch::task_tree.root(...) received a direct-output callable whose last parameter is yorch::direct_out<T>; use root_into(...) instead.");
     }
 
-    /// Rvalue overload of `node_with_retry(...)`.
-    template <std::size_t Level, typename Policy, typename F, typename... Specs>
-        requires (detail::append_level_valid_v<Level, Nodes...>) &&
-                 retry_policy<std::decay_t<Policy>> &&
-                 detail::bind_signature_matches<F, Specs...>
-    [[nodiscard]] constexpr auto node_with_retry(
-        Policy&& policy,
-        F&& f,
-        Specs&&... specs) && {
-        return std::move(*this).template node<Level>(yorch::with_retry(
-            yorch::bind(std::forward<F>(f), std::forward<Specs>(specs)...),
-            std::forward<Policy>(policy)));
+    template <typename F, typename FanoutPolicyOrChain>
+        requires (sizeof...(Nodes) == 0) &&
+                 detail::direct_output_callable_task_argument<F> &&
+                 detail::fanout_policy_or_chain<FanoutPolicyOrChain>
+                 // NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
+    constexpr void root(F&&, FanoutPolicyOrChain&&) const& {
+        static_assert(
+            detail::always_false_v<std::tuple<F, FanoutPolicyOrChain>>,
+            "yorch::task_tree.root(...) received a direct-output callable whose last parameter is yorch::direct_out<T>; use root_into(...) instead.");
     }
 
-    /// Convenience syntax for `node<Level>(yorch::with_retry(yorch::bind_into<T>(...)))`.
-    template <std::size_t Level, typename T, typename Policy, typename F, typename... Specs>
-        requires (detail::append_level_valid_v<Level, Nodes...>) &&
-                 retry_policy<std::decay_t<Policy>> &&
-                 detail::bind_into_signature_matches<T, F, Specs...>
-    [[nodiscard]] constexpr auto node_with_retry_into(
-        Policy&& policy,
-        F&& f,
-        Specs&&... specs) const& {
-        return node<Level>(yorch::with_retry(
-            yorch::bind_into<T>(std::forward<F>(f), std::forward<Specs>(specs)...),
-            std::forward<Policy>(policy)));
+    template <typename F, typename FanoutPolicy, typename AdapterChain>
+        requires (sizeof...(Nodes) == 0) &&
+                 detail::direct_output_callable_task_argument<F> &&
+                 detail::fanout_policy<FanoutPolicy> &&
+                 detail::adapter_chain_like<AdapterChain>
+                 // NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
+    constexpr void root(F&&, FanoutPolicy&&, AdapterChain&&) const& {
+        static_assert(
+            detail::always_false_v<std::tuple<F, FanoutPolicy, AdapterChain>>,
+            "yorch::task_tree.root(...) received a direct-output callable whose last parameter is yorch::direct_out<T>; use root_into(...) instead.");
     }
 
-    /// Rvalue overload of `node_with_retry_into(...)`.
-    template <std::size_t Level, typename T, typename Policy, typename F, typename... Specs>
+    template <typename Task>
+        requires (sizeof...(Nodes) == 0) &&
+                 detail::ordinary_task_object_argument<Task>
+                 // NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
+    constexpr void root_into(Task&&) const& {
+        static_assert(
+            detail::always_false_v<Task>,
+            "yorch::task_tree.root_into(...) received a non-direct-output task; use root(...) instead.");
+    }
+
+    template <typename Task, typename FanoutPolicy>
+        requires (sizeof...(Nodes) == 0) &&
+                 detail::ordinary_task_object_argument<Task> &&
+                 detail::fanout_policy<FanoutPolicy>
+                 // NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
+    constexpr void root_into(Task&&, FanoutPolicy&&) const& {
+        static_assert(
+            detail::always_false_v<std::tuple<Task, FanoutPolicy>>,
+            "yorch::task_tree.root_into(...) received a non-direct-output task; use root(...) instead.");
+    }
+
+    template <typename F>
+        requires (sizeof...(Nodes) == 0) &&
+                 detail::ordinary_callable_task_argument<F>
+                 // NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
+    constexpr void root_into(F&&) const& {
+        static_assert(
+            detail::always_false_v<F>,
+            "yorch::task_tree.root_into(...) requires a callable whose last parameter is yorch::direct_out<T>; use root(...) for ordinary tasks.");
+    }
+
+    template <typename F, typename FanoutPolicyOrChain>
+        requires (sizeof...(Nodes) == 0) &&
+                 detail::ordinary_callable_task_argument<F> &&
+                 detail::fanout_policy_or_chain<FanoutPolicyOrChain>
+                 // NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
+    constexpr void root_into(F&&, FanoutPolicyOrChain&&) const& {
+        static_assert(
+            detail::always_false_v<std::tuple<F, FanoutPolicyOrChain>>,
+            "yorch::task_tree.root_into(...) requires a callable whose last parameter is yorch::direct_out<T>; use root(...) for ordinary tasks.");
+    }
+
+    template <typename F, typename FanoutPolicy, typename AdapterChain>
+        requires (sizeof...(Nodes) == 0) &&
+                 detail::ordinary_callable_task_argument<F> &&
+                 detail::fanout_policy<FanoutPolicy> &&
+                 detail::adapter_chain_like<AdapterChain>
+                 // NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
+    constexpr void root_into(F&&, FanoutPolicy&&, AdapterChain&&) const& {
+        static_assert(
+            detail::always_false_v<std::tuple<F, FanoutPolicy, AdapterChain>>,
+            "yorch::task_tree.root_into(...) requires a callable whose last parameter is yorch::direct_out<T>; use root(...) for ordinary tasks.");
+    }
+
+    template <std::size_t Level, typename Task>
         requires (detail::append_level_valid_v<Level, Nodes...>) &&
-                 retry_policy<std::decay_t<Policy>> &&
-                 detail::bind_into_signature_matches<T, F, Specs...>
-    [[nodiscard]] constexpr auto node_with_retry_into(
-        Policy&& policy,
-        F&& f,
-        Specs&&... specs) && {
-        return std::move(*this).template node<Level>(yorch::with_retry(
-            yorch::bind_into<T>(std::forward<F>(f), std::forward<Specs>(specs)...),
-            std::forward<Policy>(policy)));
+                 detail::direct_output_task_object_argument<Task>
+                 // NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
+    constexpr void node(Task&&) const& {
+        static_assert(
+            detail::always_false_v<Task>,
+            "yorch::task_tree.node<Level>(...) received a direct-output task; use node_into<Level>(...) instead.");
+    }
+
+    template <std::size_t Level, typename Task, typename FanoutPolicy>
+        requires (detail::append_level_valid_v<Level, Nodes...>) &&
+                 detail::direct_output_task_object_argument<Task> &&
+                 detail::fanout_policy<FanoutPolicy>
+                 // NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
+    constexpr void node(Task&&, FanoutPolicy&&) const& {
+        static_assert(
+            detail::always_false_v<std::tuple<Task, FanoutPolicy>>,
+            "yorch::task_tree.node<Level>(...) received a direct-output task; use node_into<Level>(...) instead.");
+    }
+
+    template <std::size_t Level, typename F>
+        requires (detail::append_level_valid_v<Level, Nodes...>) &&
+                 detail::direct_output_callable_task_argument<F>
+                 // NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
+    constexpr void node(F&&) const& {
+        static_assert(
+            detail::always_false_v<F>,
+            "yorch::task_tree.node<Level>(...) received a direct-output callable whose last parameter is yorch::direct_out<T>; use node_into<Level>(...) instead.");
+    }
+
+    template <std::size_t Level, typename F, typename FanoutPolicyOrChain>
+        requires (detail::append_level_valid_v<Level, Nodes...>) &&
+                 detail::direct_output_callable_task_argument<F> &&
+                 detail::fanout_policy_or_chain<FanoutPolicyOrChain>
+                 // NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
+    constexpr void node(F&&, FanoutPolicyOrChain&&) const& {
+        static_assert(
+            detail::always_false_v<std::tuple<F, FanoutPolicyOrChain>>,
+            "yorch::task_tree.node<Level>(...) received a direct-output callable whose last parameter is yorch::direct_out<T>; use node_into<Level>(...) instead.");
+    }
+
+    template <std::size_t Level, typename F, typename FanoutPolicy, typename AdapterChain>
+        requires (detail::append_level_valid_v<Level, Nodes...>) &&
+                 detail::direct_output_callable_task_argument<F> &&
+                 detail::fanout_policy<FanoutPolicy> &&
+                 detail::adapter_chain_like<AdapterChain>
+                 // NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
+    constexpr void node(F&&, FanoutPolicy&&, AdapterChain&&) const& {
+        static_assert(
+            detail::always_false_v<std::tuple<F, FanoutPolicy, AdapterChain>>,
+            "yorch::task_tree.node<Level>(...) received a direct-output callable whose last parameter is yorch::direct_out<T>; use node_into<Level>(...) instead.");
+    }
+
+    template <std::size_t Level, typename Task>
+        requires (detail::append_level_valid_v<Level, Nodes...>) &&
+                 detail::ordinary_task_object_argument<Task>
+                 // NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
+    constexpr void node_into(Task&&) const& {
+        static_assert(
+            detail::always_false_v<Task>,
+            "yorch::task_tree.node_into<Level>(...) received a non-direct-output task; use node<Level>(...) instead.");
+    }
+
+    template <std::size_t Level, typename Task, typename FanoutPolicy>
+        requires (detail::append_level_valid_v<Level, Nodes...>) &&
+                 detail::ordinary_task_object_argument<Task> &&
+                 detail::fanout_policy<FanoutPolicy>
+                 // NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
+    constexpr void node_into(Task&&, FanoutPolicy&&) const& {
+        static_assert(
+            detail::always_false_v<std::tuple<Task, FanoutPolicy>>,
+            "yorch::task_tree.node_into<Level>(...) received a non-direct-output task; use node<Level>(...) instead.");
+    }
+
+    template <std::size_t Level, typename F>
+        requires (detail::append_level_valid_v<Level, Nodes...>) &&
+                 detail::ordinary_callable_task_argument<F>
+                 // NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
+    constexpr void node_into(F&&) const& {
+        static_assert(
+            detail::always_false_v<F>,
+            "yorch::task_tree.node_into<Level>(...) requires a callable whose last parameter is yorch::direct_out<T>; use node<Level>(...) for ordinary tasks.");
+    }
+
+    template <std::size_t Level, typename F, typename FanoutPolicyOrChain>
+        requires (detail::append_level_valid_v<Level, Nodes...>) &&
+                 detail::ordinary_callable_task_argument<F> &&
+                 detail::fanout_policy_or_chain<FanoutPolicyOrChain>
+                 // NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
+    constexpr void node_into(F&&, FanoutPolicyOrChain&&) const& {
+        static_assert(
+            detail::always_false_v<std::tuple<F, FanoutPolicyOrChain>>,
+            "yorch::task_tree.node_into<Level>(...) requires a callable whose last parameter is yorch::direct_out<T>; use node<Level>(...) for ordinary tasks.");
+    }
+
+    template <std::size_t Level, typename F, typename FanoutPolicy, typename AdapterChain>
+        requires (detail::append_level_valid_v<Level, Nodes...>) &&
+                 detail::ordinary_callable_task_argument<F> &&
+                 detail::fanout_policy<FanoutPolicy> &&
+                 detail::adapter_chain_like<AdapterChain>
+                 // NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
+    constexpr void node_into(F&&, FanoutPolicy&&, AdapterChain&&) const& {
+        static_assert(
+            detail::always_false_v<std::tuple<F, FanoutPolicy, AdapterChain>>,
+            "yorch::task_tree.node_into<Level>(...) requires a callable whose last parameter is yorch::direct_out<T>; use node<Level>(...) for ordinary tasks.");
     }
 
     template <std::size_t I>
@@ -536,7 +1010,6 @@ struct task_tree_builder {
     }
 };
 
-/// @brief Empty task tree builder value used as the starting point for `root(...)`.
 inline constexpr task_tree_builder<> task_tree {};
 
 } // namespace yorch

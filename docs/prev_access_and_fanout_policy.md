@@ -120,10 +120,25 @@ auto tree = yorch::task_tree
     .node<1>(child_task_2, yorch::fanout_consume_with_copies_policy {});
 ```
 
+也支持两段式 callable sugar：
+
+```cpp
+auto tree = yorch::task_tree
+    .root(load_scene, yorch::fanout_shared_readonly_policy {})()
+    .node<1>(process_scene,
+             yorch::fanout_consume_with_copies_policy {},
+             yorch::adapters(yorch::adapt_retry(yorch::retry_fixed_policy {2})))
+        (yorch::borrow_prev<scene>());
+```
+
 具体入口为：
 
 - `root(task, fanout_policy)`
 - `node<Level>(task, fanout_policy)`
+- `root(f, fanout_policy)(specs...)`
+- `node<Level>(f, fanout_policy)(specs...)`
+- `root_into(f, fanout_policy, adapters(...))(specs...)`
+- `node_into<Level>(f, fanout_policy, adapters(...))(specs...)`
 
 `fanout policy` 是 parent node 的 compile-time metadata，不是 `run_plan(...)` 的 runtime 参数。
 

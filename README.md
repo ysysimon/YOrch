@@ -72,11 +72,10 @@ cmake --build --preset docs --target docs
 ```cpp
 inline auto make_demo_tree(int value) {
     return yorch::task_tree
-        .root(yorch::bind([value]() noexcept -> int {
+        .root([value]() noexcept -> int {
             return value;
-        }))
-        .node<1>(yorch::bind([](const int&) noexcept {},
-                             yorch::borrow_prev<int>()));
+        })()
+        .node<1>([](const int&) noexcept {})(yorch::borrow_prev<int>());
 }
 
 template <typename Tree>
