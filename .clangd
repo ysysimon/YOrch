@@ -1,5 +1,5 @@
 If:
-  PathMatch: ^(include/yorch|src|tests)/.*
+  PathMatch: ^(include/yorch|src|tests|examples)/.*
 
 CompileFlags:
   CompilationDatabase: build/dev

@@ -92,7 +92,7 @@ if(YORCH_BUILD_TESTS)
 endif()
 
 if(YORCH_BUILD_EXAMPLES)
-    # add_subdirectory(examples)
+    add_subdirectory(examples)
 endif()
 
 if(YORCH_BUILD_DOCS)
