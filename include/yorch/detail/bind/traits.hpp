@@ -223,6 +223,15 @@ concept bind_signature_matches =
     ordinary_bind_callable<F> &&
     function_traits<std::remove_cvref_t<F>>::arity == sizeof...(Specs);
 
+template <typename F, typename ReceiverSpec>
+concept member_receiver_bindable =
+    member_bind_callable<F>;
+
+template <typename F, typename... Specs>
+concept member_bound_signature_matches =
+    ordinary_member_bind_callable<F> &&
+    member_function_traits<std::remove_cvref_t<F>>::arity == sizeof...(Specs);
+
 template <typename T, typename F, typename... Specs>
 concept bind_into_signature_matches =
     inferable_direct_output_callable<F> &&
@@ -231,9 +240,22 @@ concept bind_into_signature_matches =
         std::remove_cvref_t<last_arg_t<std::remove_cvref_t<F>>>,
         direct_out<T>>;
 
+template <typename T, typename F, typename... Specs>
+concept member_bound_into_signature_matches =
+    inferable_direct_output_member_callable<F> &&
+    member_function_traits<std::remove_cvref_t<F>>::arity == sizeof...(Specs) + 1 &&
+    std::is_same_v<
+        std::remove_cvref_t<member_last_arg_t<std::remove_cvref_t<F>>>,
+        direct_out<T>>;
+
 template <typename F, typename... Specs>
 concept inferred_bind_into_signature_matches =
     inferable_direct_output_callable<F> &&
     function_traits<std::remove_cvref_t<F>>::arity == sizeof...(Specs) + 1;
+
+template <typename F, typename... Specs>
+concept inferred_member_bound_into_signature_matches =
+    inferable_direct_output_member_callable<F> &&
+    member_function_traits<std::remove_cvref_t<F>>::arity == sizeof...(Specs) + 1;
 
 } // namespace yorch::detail

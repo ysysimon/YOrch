@@ -38,6 +38,16 @@ concept direct_output_callable_task_argument =
     callable_task_argument<F> &&
     inferable_direct_output_callable<F>;
 
+template <typename F>
+concept ordinary_member_callable_task_argument =
+    callable_task_argument<F> &&
+    ordinary_member_bind_callable<F>;
+
+template <typename F>
+concept direct_output_member_callable_task_argument =
+    callable_task_argument<F> &&
+    inferable_direct_output_member_callable<F>;
+
 template <typename T>
 concept fanout_policy_or_chain =
     fanout_policy<T> || adapter_chain_like<T>;

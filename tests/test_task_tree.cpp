@@ -103,11 +103,93 @@ concept can_append_root_member_callable =
         std::forward<TaskTree>(task_tree).root(&member_tree_worker::seed);
     };
 
+template <typename TaskTree>
+concept can_append_root_member_sugar =
+    requires(TaskTree&& task_tree) {
+        std::forward<TaskTree>(task_tree).root_member(
+            &member_tree_worker::seed,
+            yorch::value(member_tree_worker {}))(
+            yorch::value(1));
+    };
+
+template <typename TaskTree>
+concept can_append_root_into_member_sugar =
+    requires(TaskTree&& task_tree) {
+        std::forward<TaskTree>(task_tree).root_into_member(
+            &member_tree_worker::emit_text,
+            yorch::value(member_tree_worker {}))(
+            yorch::value(1));
+    };
+
+template <typename TaskTree>
+concept can_append_root_member_with_direct_output =
+    requires(TaskTree&& task_tree) {
+        std::forward<TaskTree>(task_tree).root_member(
+            &member_tree_worker::emit_text,
+            yorch::value(member_tree_worker {}))(
+            yorch::value(1));
+    };
+
+template <typename TaskTree>
+concept can_append_root_into_member_with_ordinary =
+    requires(TaskTree&& task_tree) {
+        std::forward<TaskTree>(task_tree).root_into_member(
+            &member_tree_worker::seed,
+            yorch::value(member_tree_worker {}))(
+            yorch::value(1));
+    };
+
+template <typename TaskTree>
+concept can_append_root_member_without_receiver =
+    requires(TaskTree&& task_tree) {
+        requires (!std::is_void_v<decltype(
+            std::forward<TaskTree>(task_tree).root_member(&member_tree_worker::seed))>);
+    };
+
+template <typename TaskTree>
+concept can_append_root_into_member_without_receiver =
+    requires(TaskTree&& task_tree) {
+        requires (!std::is_void_v<decltype(
+            std::forward<TaskTree>(task_tree).root_into_member(&member_tree_worker::emit_text))>);
+    };
+
 template <typename TaskTree, std::size_t Level>
 concept can_append_node_callable_into =
     requires(TaskTree&& task_tree) {
         std::forward<TaskTree>(task_tree)
             .template node_into<Level>([](yorch::direct_out<int>) noexcept {})();
+    };
+
+template <typename TaskTree, std::size_t Level>
+concept can_append_node_member_sugar =
+    requires(TaskTree&& task_tree) {
+        std::forward<TaskTree>(task_tree).template node_member<Level>(
+            &member_tree_worker::seed,
+            yorch::value(member_tree_worker {}))(
+            yorch::value(1));
+    };
+
+template <typename TaskTree, std::size_t Level>
+concept can_append_node_into_member_sugar =
+    requires(TaskTree&& task_tree) {
+        std::forward<TaskTree>(task_tree).template node_into_member<Level>(
+            &member_tree_worker::emit_text,
+            yorch::value(member_tree_worker {}))(
+            yorch::value(1));
+    };
+
+template <typename TaskTree, std::size_t Level>
+concept can_append_node_member_without_receiver =
+    requires(TaskTree&& task_tree) {
+        requires (!std::is_void_v<decltype(
+            std::forward<TaskTree>(task_tree).template node_member<Level>(&member_tree_worker::seed))>);
+    };
+
+template <typename TaskTree, std::size_t Level>
+concept can_append_node_into_member_without_receiver =
+    requires(TaskTree&& task_tree) {
+        requires (!std::is_void_v<decltype(
+            std::forward<TaskTree>(task_tree).template node_into_member<Level>(&member_tree_worker::emit_text))>);
     };
 
 } // namespace
@@ -204,8 +286,20 @@ TEST(TaskTreeTest, RootBuilderRejectsInvalidLevelTransitions) {
                   "empty task_tree should allow callable root sugar");
     static_assert(can_append_root_callable_into<decltype(yorch::task_tree)>,
                   "empty task_tree should allow callable root direct-output sugar");
+    static_assert(can_append_root_member_sugar<decltype(yorch::task_tree)>,
+                  "empty task_tree should allow explicit member root sugar");
+    static_assert(can_append_root_into_member_sugar<decltype(yorch::task_tree)>,
+                  "empty task_tree should allow explicit member root direct-output sugar");
+    static_assert(!can_append_root_member_without_receiver<decltype(yorch::task_tree)>,
+                  "root_member(...) should reject missing receiver bindings");
+    static_assert(!can_append_root_into_member_without_receiver<decltype(yorch::task_tree)>,
+                  "root_into_member(...) should reject missing receiver bindings");
     static_assert(!can_append_root_member_callable<decltype(yorch::task_tree)>,
                   "empty task_tree should reject raw member function pointers in callable sugar");
+    static_assert(!can_append_root_member_with_direct_output<decltype(yorch::task_tree)>,
+                  "root_member(...) should reject direct-output member functions");
+    static_assert(!can_append_root_into_member_with_ordinary<decltype(yorch::task_tree)>,
+                  "root_into_member(...) should reject ordinary member functions");
     static_assert(!yorch::detail::direct_output_callable_task_argument<ordinary_callable>,
                   "root_into(...) should reject ordinary callables without direct_out<T>");
     static_assert(!can_append_root<root_task_tree_t&>,
@@ -228,6 +322,14 @@ TEST(TaskTreeTest, RootBuilderRejectsInvalidLevelTransitions) {
                   "empty task_tree should reject node_into<1>(callable) because a root must come first");
     static_assert(can_append_node_callable_into<root_callable_into_task_tree_t&, 1>,
                   "root direct-output task_tree should allow descending one level to callable node direct-output sugar");
+    static_assert(can_append_node_member_sugar<root_task_tree_t&, 1>,
+                  "root task_tree should allow descending one level to explicit member sugar");
+    static_assert(can_append_node_into_member_sugar<root_task_tree_t&, 1>,
+                  "root task_tree should allow descending one level to explicit member direct-output sugar");
+    static_assert(!can_append_node_member_without_receiver<root_task_tree_t&, 1>,
+                  "node_member<Level>(...) should reject missing receiver bindings");
+    static_assert(!can_append_node_into_member_without_receiver<root_task_tree_t&, 1>,
+                  "node_into_member<Level>(...) should reject missing receiver bindings");
     static_assert(!can_append_node_callable_into<root_callable_into_task_tree_t&, 2>,
                   "root direct-output task_tree should reject skipping directly from level 0 to level 2");
     static_assert(can_append_noop<depth_one_task_tree_t&, 1>,
@@ -293,6 +395,106 @@ TEST(TaskTreeTest, RootCallableIntoAndNodeCallableIntoBuildRunnablePlan) {
     EXPECT_TRUE(result.ok());
     EXPECT_EQ(seen_root, 7);
     EXPECT_EQ(seen_child, 14);
+}
+
+TEST(TaskTreeTest, RootMemberAndNodeIntoMemberSugarBuildRunnablePlan) {
+    member_tree_worker worker;
+    std::string seen_child;
+
+    auto tree = yorch::task_tree
+        .root_member(
+            &member_tree_worker::seed,
+            yorch::value(std::ref(worker)))(
+            yorch::value(3))
+        .node_into_member<1>(
+            &member_tree_worker::emit_text,
+            yorch::value(std::ref(worker)))(
+            yorch::value(3))
+        .node<2>(yorch::bind(
+            [&](const std::string& value) noexcept -> yorch::step_result {
+                seen_child = value;
+                return yorch::step_result::success();
+            },
+            yorch::borrow_prev<std::string>()));
+
+    auto plan = yorch::compile_plan(tree);
+    const auto result = yorch::run_plan(plan);
+
+    EXPECT_TRUE(result.ok());
+    EXPECT_EQ(worker.base, 6);
+    EXPECT_EQ(seen_child, "6");
+}
+
+TEST(TaskTreeTest, RootIntoMemberSugarBuildsRunnablePlanFromContextReceiver) {
+    yorch::context<member_tree_worker> ctx(member_tree_worker {.base = 5});
+
+    auto tree = yorch::task_tree
+        .root_into_member(
+            &member_tree_worker::emit_text,
+            yorch::from_ctx<member_tree_worker>())(
+            yorch::value(2))
+        .node<1>(yorch::bind(
+            [](const std::string& value) noexcept -> int {
+                return std::stoi(value);
+            },
+            yorch::borrow_prev<std::string>()));
+
+    auto plan = yorch::compile_plan(tree);
+    const auto result = yorch::run_plan(plan, ctx);
+
+    EXPECT_TRUE(result.ok());
+    EXPECT_EQ(ctx.get<member_tree_worker>().base, 7);
+}
+
+TEST(TaskTreeTest, NodeMemberSugarSupportsBorrowPrevMutReceiver) {
+    int seen_value = 0;
+
+    auto tree = yorch::task_tree
+        .root(yorch::bind([]() noexcept -> member_tree_worker {
+            member_tree_worker worker;
+            worker.base = 8;
+            return worker;
+        }))
+        .node_member<1>(
+            &member_tree_worker::seed,
+            yorch::borrow_prev_mut<member_tree_worker>())(
+            yorch::value(4))
+        .node<2>(yorch::bind(
+            [&](const int& value) noexcept -> yorch::step_result {
+                seen_value = value;
+                return yorch::step_result::success();
+            },
+            yorch::borrow_prev<int>()));
+
+    auto plan = yorch::compile_plan(tree);
+    const auto result = yorch::run_plan(plan);
+
+    EXPECT_TRUE(result.ok());
+    EXPECT_EQ(seen_value, 12);
+}
+
+TEST(TaskTreeTest, NodeIntoMemberSugarSupportsBorrowPrevReceiver) {
+    std::string seen_value;
+
+    auto tree = yorch::task_tree
+        .root(yorch::bind([]() noexcept -> move_only_tree_worker {
+            return move_only_tree_worker {15};
+        }))
+        .node_into_member<1>(
+            &move_only_tree_worker::emit_text,
+            yorch::borrow_prev<move_only_tree_worker>())()
+        .node<2>(yorch::bind(
+            [&](const std::string& value) noexcept -> yorch::step_result {
+                seen_value = value;
+                return yorch::step_result::success();
+            },
+            yorch::borrow_prev<std::string>()));
+
+    auto plan = yorch::compile_plan(tree);
+    const auto result = yorch::run_plan(plan);
+
+    EXPECT_TRUE(result.ok());
+    EXPECT_EQ(seen_value, "15");
 }
 
 TEST(TaskTreeTest, PreboundMemberTasksBuildRunnablePlan) {

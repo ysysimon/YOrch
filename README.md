@@ -98,7 +98,13 @@ runner r(std::move(tree));
 
 ## Member Functions
 
-成员函数请显式使用 `bind_member(...)` 或 `bind_into_member(...)`，不要把 `&Class::method` 直接传给 `bind(...)`、`task(...)` 或 `task_tree.root(...)` 这类普通 callable 入口。
+成员函数请显式使用 member 专用入口：
+
+- 预绑定 task：`bind_member(...)` / `bind_into_member(...)`
+- 两段式 sugar：`task_member(...)` / `task_into_member(...)`
+- `task_tree` sugar：`root_member(...)` / `root_into_member(...)` / `node_member<Level>(...)` / `node_into_member<Level>(...)`
+
+不要把 `&Class::method` 直接传给 `bind(...)`、`task(...)`、`task_into(...)`、`task_tree.root(...)` 或 `task_tree.node<...>(...)` 这类 ordinary callable 入口。
 
 示例：
 
@@ -124,6 +130,21 @@ auto direct_output_task = yorch::bind_into_member<std::string>(
     &worker::emit,
     yorch::value(std::ref(w)),
     yorch::value(42));
+
+auto sugar_task = yorch::task_member(
+    &worker::run,
+    yorch::value(std::ref(w)))(
+    yorch::value(41));
+
+auto tree = yorch::task_tree
+    .root_member(
+        &worker::run,
+        yorch::value(std::ref(w)))(
+        yorch::value(41))
+    .node_into_member<1>(
+        &worker::emit,
+        yorch::value(std::ref(w)))(
+        yorch::value(42));
 ```
 
 receiver 也可以来自 `context` 或 direct parent：
