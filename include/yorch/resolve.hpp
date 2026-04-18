@@ -1,4 +1,5 @@
 #pragma once
+#include <functional>
 #include <type_traits>
 #include <utility>
 #include "context.hpp"
@@ -328,6 +329,46 @@ constexpr decltype(auto) resolve_as(consume_prev_t<T>, exec_context<Ctx, Prev>& 
  * @param spec Spec that owns the stored value.
  * @return A const reference or value matching `Arg`.
  */
+template <typename Arg, typename T, typename Ctx, typename Prev>
+constexpr decltype(auto) resolve_as(value_t<std::reference_wrapper<T>>& spec, exec_context<Ctx, Prev>&)
+    noexcept(std::is_reference_v<Arg>) {
+    static_assert(std::is_reference_v<Arg>,
+                  "value(std::ref(...)) can only bind to T& or const T&");
+
+    using raw_arg_t = std::remove_cvref_t<Arg>;
+    auto& ref = spec.v.get();
+
+    if constexpr (std::is_const_v<std::remove_reference_t<Arg>>) {
+        static_assert(std::is_convertible_v<T&, const raw_arg_t&>,
+                      "Stored reference_wrapper cannot bind to requested const reference type");
+        return static_cast<const raw_arg_t&>(ref);
+    } else {
+        static_assert(std::is_convertible_v<T&, raw_arg_t&>,
+                      "Stored reference_wrapper cannot bind to requested mutable reference type");
+        return static_cast<raw_arg_t&>(ref);
+    }
+}
+
+template <typename Arg, typename T, typename Ctx, typename Prev>
+constexpr decltype(auto) resolve_as(const value_t<std::reference_wrapper<T>>& spec, exec_context<Ctx, Prev>&)
+    noexcept(std::is_reference_v<Arg>) {
+    static_assert(std::is_reference_v<Arg>,
+                  "const value(std::ref(...)) can only bind to T& or const T&");
+
+    using raw_arg_t = std::remove_cvref_t<Arg>;
+    auto& ref = spec.v.get();
+
+    if constexpr (std::is_const_v<std::remove_reference_t<Arg>>) {
+        static_assert(std::is_convertible_v<T&, const raw_arg_t&>,
+                      "Stored reference_wrapper cannot bind to requested const reference type");
+        return static_cast<const raw_arg_t&>(ref);
+    } else {
+        static_assert(std::is_convertible_v<T&, raw_arg_t&>,
+                      "Stored reference_wrapper cannot bind to requested mutable reference type");
+        return static_cast<raw_arg_t&>(ref);
+    }
+}
+
 template <typename Arg, typename T, typename Ctx, typename Prev>
     requires resolvable_mutable_value<Arg, T>
 constexpr decltype(auto) resolve_as(value_t<T>& spec, exec_context<Ctx, Prev>&)

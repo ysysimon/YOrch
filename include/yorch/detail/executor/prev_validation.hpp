@@ -89,12 +89,52 @@ template <typename Spec, typename Arg>
 inline constexpr bool prev_access_binding_valid_v =
     prev_access_binding_valid<std::remove_cvref_t<Spec>, Arg>::value;
 
+template <typename F>
+inline constexpr bool member_receiver_is_const_v =
+    std::is_const_v<std::remove_reference_t<member_receiver_arg_t<F>>>;
+
+template <typename Spec, typename F>
+struct member_receiver_prev_access_valid : std::false_type {};
+
+template <typename T, typename F>
+struct member_receiver_prev_access_valid<borrow_prev_t<T>, F>
+    : std::bool_constant<
+          std::is_same_v<typename borrow_prev_t<T>::type, member_class_t<F>> &&
+          member_receiver_is_const_v<F>> {};
+
+template <typename T, typename F>
+struct member_receiver_prev_access_valid<borrow_prev_mut_t<T>, F>
+    : std::bool_constant<std::is_same_v<typename borrow_prev_mut_t<T>::type, member_class_t<F>>> {};
+
+template <typename T, typename F>
+struct member_receiver_prev_access_valid<copy_prev_t<T>, F>
+    : std::bool_constant<std::is_same_v<typename copy_prev_t<T>::type, member_class_t<F>>> {};
+
+template <typename T, typename F>
+struct member_receiver_prev_access_valid<consume_prev_t<T>, F>
+    : std::bool_constant<std::is_same_v<typename consume_prev_t<T>::type, member_class_t<F>>> {};
+
+template <typename Spec, typename F>
+inline constexpr bool member_receiver_prev_access_valid_v =
+    member_receiver_prev_access_valid<std::remove_cvref_t<Spec>, std::remove_cvref_t<F>>::value;
+
 template <typename F, typename SpecsTuple, std::size_t... I>
 [[nodiscard]] consteval bool bound_task_prev_access_bindings_valid_impl(std::index_sequence<I...>) {
     return (((!is_prev_access_spec_v<std::tuple_element_t<I, SpecsTuple>>) ||
              prev_access_binding_valid_v<
                  std::tuple_element_t<I, SpecsTuple>,
                  nth_arg_t<I, F>>) && ...);
+}
+
+template <typename F, typename ReceiverSpec, typename SpecsTuple, std::size_t... I>
+[[nodiscard]] consteval bool bound_member_task_prev_access_bindings_valid_impl(
+    std::index_sequence<I...>) {
+    return ((!is_prev_access_spec_v<ReceiverSpec>) ||
+            member_receiver_prev_access_valid_v<ReceiverSpec, F>) &&
+           (((!is_prev_access_spec_v<std::tuple_element_t<I, SpecsTuple>>) ||
+             prev_access_binding_valid_v<
+                 std::tuple_element_t<I, SpecsTuple>,
+                 member_nth_arg_t<I, F>>) && ...);
 }
 
 template <typename SpecsTuple, std::size_t... I>
@@ -104,9 +144,27 @@ template <typename SpecsTuple, std::size_t... I>
                                                                         : std::size_t {0}));
 }
 
+template <typename ReceiverSpec, typename SpecsTuple, std::size_t... I>
+[[nodiscard]] consteval std::size_t bound_member_task_prev_access_count_impl(
+    std::index_sequence<I...>) {
+    return (is_prev_access_spec_v<ReceiverSpec> ? std::size_t {1} : std::size_t {0}) +
+           (std::size_t {0} + ... +
+            (is_prev_access_spec_v<std::tuple_element_t<I, SpecsTuple>> ? std::size_t {1}
+                                                                        : std::size_t {0}));
+}
+
 template <typename SpecsTuple, std::size_t... I>
 [[nodiscard]] consteval std::size_t bound_task_consume_prev_count_impl(std::index_sequence<I...>) {
     return (std::size_t {0} + ... +
+            (is_consume_prev_spec_v<std::tuple_element_t<I, SpecsTuple>> ? std::size_t {1}
+                                                                         : std::size_t {0}));
+}
+
+template <typename ReceiverSpec, typename SpecsTuple, std::size_t... I>
+[[nodiscard]] consteval std::size_t bound_member_task_consume_prev_count_impl(
+    std::index_sequence<I...>) {
+    return (is_consume_prev_spec_v<ReceiverSpec> ? std::size_t {1} : std::size_t {0}) +
+           (std::size_t {0} + ... +
             (is_consume_prev_spec_v<std::tuple_element_t<I, SpecsTuple>> ? std::size_t {1}
                                                                          : std::size_t {0}));
 }
@@ -120,9 +178,28 @@ template <typename SpecsTuple, std::size_t... I>
                  : std::size_t {0}));
 }
 
+template <typename ReceiverSpec, typename SpecsTuple, std::size_t... I>
+[[nodiscard]] consteval std::size_t bound_member_task_exclusive_prev_access_count_impl(
+    std::index_sequence<I...>) {
+    return (is_exclusive_prev_access_spec_v<ReceiverSpec> ? std::size_t {1} : std::size_t {0}) +
+           (std::size_t {0} + ... +
+            (is_exclusive_prev_access_spec_v<std::tuple_element_t<I, SpecsTuple>>
+                 ? std::size_t {1}
+                 : std::size_t {0}));
+}
+
 template <typename SpecsTuple, std::size_t... I>
 [[nodiscard]] consteval std::size_t bound_task_borrow_prev_count_impl(std::index_sequence<I...>) {
     return (std::size_t {0} + ... +
+            (is_borrow_prev_spec_v<std::tuple_element_t<I, SpecsTuple>> ? std::size_t {1}
+                                                                        : std::size_t {0}));
+}
+
+template <typename ReceiverSpec, typename SpecsTuple, std::size_t... I>
+[[nodiscard]] consteval std::size_t bound_member_task_borrow_prev_count_impl(
+    std::index_sequence<I...>) {
+    return (is_borrow_prev_spec_v<ReceiverSpec> ? std::size_t {1} : std::size_t {0}) +
+           (std::size_t {0} + ... +
             (is_borrow_prev_spec_v<std::tuple_element_t<I, SpecsTuple>> ? std::size_t {1}
                                                                         : std::size_t {0}));
 }
@@ -135,6 +212,15 @@ template <typename SpecsTuple, std::size_t... I>
                                                                             : std::size_t {0}));
 }
 
+template <typename ReceiverSpec, typename SpecsTuple, std::size_t... I>
+[[nodiscard]] consteval std::size_t bound_member_task_borrow_prev_mut_count_impl(
+    std::index_sequence<I...>) {
+    return (is_borrow_prev_mut_spec_v<ReceiverSpec> ? std::size_t {1} : std::size_t {0}) +
+           (std::size_t {0} + ... +
+            (is_borrow_prev_mut_spec_v<std::tuple_element_t<I, SpecsTuple>> ? std::size_t {1}
+                                                                            : std::size_t {0}));
+}
+
 template <typename SpecsTuple, std::size_t... I>
 [[nodiscard]] consteval std::size_t bound_task_copy_prev_count_impl(std::index_sequence<I...>) {
     return (std::size_t {0} + ... +
@@ -142,9 +228,25 @@ template <typename SpecsTuple, std::size_t... I>
                                                                       : std::size_t {0}));
 }
 
+template <typename ReceiverSpec, typename SpecsTuple, std::size_t... I>
+[[nodiscard]] consteval std::size_t bound_member_task_copy_prev_count_impl(
+    std::index_sequence<I...>) {
+    return (is_copy_prev_spec_v<ReceiverSpec> ? std::size_t {1} : std::size_t {0}) +
+           (std::size_t {0} + ... +
+            (is_copy_prev_spec_v<std::tuple_element_t<I, SpecsTuple>> ? std::size_t {1}
+                                                                      : std::size_t {0}));
+}
+
 template <typename SpecsTuple, std::size_t... I>
 [[nodiscard]] consteval bool bound_task_uses_exclusive_prev_access_impl(std::index_sequence<I...>) {
     return (is_exclusive_prev_access_spec_v<std::tuple_element_t<I, SpecsTuple>> || ...);
+}
+
+template <typename ReceiverSpec, typename SpecsTuple, std::size_t... I>
+[[nodiscard]] consteval bool bound_member_task_uses_exclusive_prev_access_impl(
+    std::index_sequence<I...>) {
+    return is_exclusive_prev_access_spec_v<ReceiverSpec> ||
+           (is_exclusive_prev_access_spec_v<std::tuple_element_t<I, SpecsTuple>> || ...);
 }
 
 template <typename Task>
@@ -329,6 +431,150 @@ template <typename F, typename T, typename... Specs>
 struct task_uses_copy_prev<bound_output_task<F, T, Specs...>>
     : std::bool_constant<
           bound_task_copy_prev_count_impl<
+              std::tuple<Specs...>>(
+              std::index_sequence_for<Specs...> {}) != 0> {};
+
+template <typename F, typename ReceiverSpec, typename... Specs>
+struct task_prev_access_valid<bound_member_task<F, ReceiverSpec, Specs...>>
+    : std::bool_constant<
+          bound_member_task_prev_access_bindings_valid_impl<
+              std::remove_cvref_t<F>,
+              std::remove_cvref_t<ReceiverSpec>,
+              std::tuple<Specs...>>(
+              std::index_sequence_for<Specs...> {}) &&
+          [] {
+              constexpr auto prev_access_count =
+                  bound_member_task_prev_access_count_impl<
+                      std::remove_cvref_t<ReceiverSpec>,
+                      std::tuple<Specs...>>(
+                      std::index_sequence_for<Specs...> {});
+              constexpr auto exclusive_prev_access_count =
+                  bound_member_task_exclusive_prev_access_count_impl<
+                      std::remove_cvref_t<ReceiverSpec>,
+                      std::tuple<Specs...>>(
+                      std::index_sequence_for<Specs...> {});
+
+              return exclusive_prev_access_count == 0 ||
+                     (exclusive_prev_access_count == 1 && prev_access_count == 1);
+          }()> {};
+
+template <typename F, typename ReceiverSpec, typename... Specs>
+struct task_uses_prev_access<bound_member_task<F, ReceiverSpec, Specs...>>
+    : std::bool_constant<
+          bound_member_task_prev_access_count_impl<
+              std::remove_cvref_t<ReceiverSpec>,
+              std::tuple<Specs...>>(
+              std::index_sequence_for<Specs...> {}) != 0> {};
+
+template <typename F, typename ReceiverSpec, typename... Specs>
+struct task_uses_exclusive_prev_access<bound_member_task<F, ReceiverSpec, Specs...>>
+    : std::bool_constant<
+          bound_member_task_uses_exclusive_prev_access_impl<
+              std::remove_cvref_t<ReceiverSpec>,
+              std::tuple<Specs...>>(
+              std::index_sequence_for<Specs...> {})> {};
+
+template <typename F, typename ReceiverSpec, typename... Specs>
+struct task_uses_consume_prev<bound_member_task<F, ReceiverSpec, Specs...>>
+    : std::bool_constant<
+          bound_member_task_consume_prev_count_impl<
+              std::remove_cvref_t<ReceiverSpec>,
+              std::tuple<Specs...>>(
+              std::index_sequence_for<Specs...> {}) != 0> {};
+
+template <typename F, typename ReceiverSpec, typename... Specs>
+struct task_uses_borrow_prev<bound_member_task<F, ReceiverSpec, Specs...>>
+    : std::bool_constant<
+          bound_member_task_borrow_prev_count_impl<
+              std::remove_cvref_t<ReceiverSpec>,
+              std::tuple<Specs...>>(
+              std::index_sequence_for<Specs...> {}) != 0> {};
+
+template <typename F, typename ReceiverSpec, typename... Specs>
+struct task_uses_borrow_prev_mut<bound_member_task<F, ReceiverSpec, Specs...>>
+    : std::bool_constant<
+          bound_member_task_borrow_prev_mut_count_impl<
+              std::remove_cvref_t<ReceiverSpec>,
+              std::tuple<Specs...>>(
+              std::index_sequence_for<Specs...> {}) != 0> {};
+
+template <typename F, typename ReceiverSpec, typename... Specs>
+struct task_uses_copy_prev<bound_member_task<F, ReceiverSpec, Specs...>>
+    : std::bool_constant<
+          bound_member_task_copy_prev_count_impl<
+              std::remove_cvref_t<ReceiverSpec>,
+              std::tuple<Specs...>>(
+              std::index_sequence_for<Specs...> {}) != 0> {};
+
+template <typename F, typename ReceiverSpec, typename T, typename... Specs>
+struct task_prev_access_valid<bound_member_output_task<F, ReceiverSpec, T, Specs...>>
+    : std::bool_constant<
+          bound_member_task_prev_access_bindings_valid_impl<
+              std::remove_cvref_t<F>,
+              std::remove_cvref_t<ReceiverSpec>,
+              std::tuple<Specs...>>(
+              std::index_sequence_for<Specs...> {}) &&
+          [] {
+              constexpr auto prev_access_count =
+                  bound_member_task_prev_access_count_impl<
+                      std::remove_cvref_t<ReceiverSpec>,
+                      std::tuple<Specs...>>(
+                      std::index_sequence_for<Specs...> {});
+              constexpr auto exclusive_prev_access_count =
+                  bound_member_task_exclusive_prev_access_count_impl<
+                      std::remove_cvref_t<ReceiverSpec>,
+                      std::tuple<Specs...>>(
+                      std::index_sequence_for<Specs...> {});
+
+              return exclusive_prev_access_count == 0 ||
+                     (exclusive_prev_access_count == 1 && prev_access_count == 1);
+          }()> {};
+
+template <typename F, typename ReceiverSpec, typename T, typename... Specs>
+struct task_uses_prev_access<bound_member_output_task<F, ReceiverSpec, T, Specs...>>
+    : std::bool_constant<
+          bound_member_task_prev_access_count_impl<
+              std::remove_cvref_t<ReceiverSpec>,
+              std::tuple<Specs...>>(
+              std::index_sequence_for<Specs...> {}) != 0> {};
+
+template <typename F, typename ReceiverSpec, typename T, typename... Specs>
+struct task_uses_exclusive_prev_access<bound_member_output_task<F, ReceiverSpec, T, Specs...>>
+    : std::bool_constant<
+          bound_member_task_uses_exclusive_prev_access_impl<
+              std::remove_cvref_t<ReceiverSpec>,
+              std::tuple<Specs...>>(
+              std::index_sequence_for<Specs...> {})> {};
+
+template <typename F, typename ReceiverSpec, typename T, typename... Specs>
+struct task_uses_consume_prev<bound_member_output_task<F, ReceiverSpec, T, Specs...>>
+    : std::bool_constant<
+          bound_member_task_consume_prev_count_impl<
+              std::remove_cvref_t<ReceiverSpec>,
+              std::tuple<Specs...>>(
+              std::index_sequence_for<Specs...> {}) != 0> {};
+
+template <typename F, typename ReceiverSpec, typename T, typename... Specs>
+struct task_uses_borrow_prev<bound_member_output_task<F, ReceiverSpec, T, Specs...>>
+    : std::bool_constant<
+          bound_member_task_borrow_prev_count_impl<
+              std::remove_cvref_t<ReceiverSpec>,
+              std::tuple<Specs...>>(
+              std::index_sequence_for<Specs...> {}) != 0> {};
+
+template <typename F, typename ReceiverSpec, typename T, typename... Specs>
+struct task_uses_borrow_prev_mut<bound_member_output_task<F, ReceiverSpec, T, Specs...>>
+    : std::bool_constant<
+          bound_member_task_borrow_prev_mut_count_impl<
+              std::remove_cvref_t<ReceiverSpec>,
+              std::tuple<Specs...>>(
+              std::index_sequence_for<Specs...> {}) != 0> {};
+
+template <typename F, typename ReceiverSpec, typename T, typename... Specs>
+struct task_uses_copy_prev<bound_member_output_task<F, ReceiverSpec, T, Specs...>>
+    : std::bool_constant<
+          bound_member_task_copy_prev_count_impl<
+              std::remove_cvref_t<ReceiverSpec>,
               std::tuple<Specs...>>(
               std::index_sequence_for<Specs...> {}) != 0> {};
 

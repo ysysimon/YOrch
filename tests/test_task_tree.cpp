@@ -21,6 +21,41 @@ struct ordinary_callable {
     void operator()() const noexcept {}
 };
 
+struct member_tree_worker {
+    int base = 0;
+
+    int seed(int delta) noexcept {
+        base += delta;
+        return base;
+    }
+
+    yorch::step_result emit_text(int delta, yorch::direct_out<std::string> out) noexcept {
+        base += delta;
+        return out.success(std::to_string(base));
+    }
+};
+
+struct move_only_tree_worker {
+    explicit move_only_tree_worker(int initial) : base(initial) {}
+
+    move_only_tree_worker(const move_only_tree_worker&) = delete;
+    move_only_tree_worker& operator=(const move_only_tree_worker&) = delete;
+    move_only_tree_worker(move_only_tree_worker&&) noexcept = default;
+    move_only_tree_worker& operator=(move_only_tree_worker&&) noexcept = default;
+    ~move_only_tree_worker() = default;
+
+    int base = 0;
+
+    int bump(int delta) noexcept {
+        base += delta;
+        return base;
+    }
+
+    [[nodiscard]] yorch::step_result emit_text(yorch::direct_out<std::string> out) const noexcept {
+        return out.success(std::to_string(base));
+    }
+};
+
 template <typename TaskTree, std::size_t Level>
 concept can_append_noop =
     requires(TaskTree&& task_tree) {
@@ -60,6 +95,12 @@ concept can_append_root_callable_into =
     requires(TaskTree&& task_tree) {
         std::forward<TaskTree>(task_tree)
             .root_into([](yorch::direct_out<int>) noexcept {})();
+    };
+
+template <typename TaskTree>
+concept can_append_root_member_callable =
+    requires(TaskTree&& task_tree) {
+        std::forward<TaskTree>(task_tree).root(&member_tree_worker::seed);
     };
 
 template <typename TaskTree, std::size_t Level>
@@ -163,6 +204,8 @@ TEST(TaskTreeTest, RootBuilderRejectsInvalidLevelTransitions) {
                   "empty task_tree should allow callable root sugar");
     static_assert(can_append_root_callable_into<decltype(yorch::task_tree)>,
                   "empty task_tree should allow callable root direct-output sugar");
+    static_assert(!can_append_root_member_callable<decltype(yorch::task_tree)>,
+                  "empty task_tree should reject raw member function pointers in callable sugar");
     static_assert(!yorch::detail::direct_output_callable_task_argument<ordinary_callable>,
                   "root_into(...) should reject ordinary callables without direct_out<T>");
     static_assert(!can_append_root<root_task_tree_t&>,
@@ -250,6 +293,85 @@ TEST(TaskTreeTest, RootCallableIntoAndNodeCallableIntoBuildRunnablePlan) {
     EXPECT_TRUE(result.ok());
     EXPECT_EQ(seen_root, 7);
     EXPECT_EQ(seen_child, 14);
+}
+
+TEST(TaskTreeTest, PreboundMemberTasksBuildRunnablePlan) {
+    member_tree_worker worker;
+    std::string seen_child;
+
+    auto tree = yorch::task_tree
+        .root(yorch::bind_member(
+            &member_tree_worker::seed,
+            yorch::value(std::ref(worker)),
+            yorch::value(3)))
+        .node_into<1>(yorch::bind_into_member<std::string>(
+            &member_tree_worker::emit_text,
+            yorch::value(std::ref(worker)),
+            yorch::value(3)))
+        .node<2>(yorch::bind(
+            [&](const std::string& value) noexcept -> yorch::step_result {
+                seen_child = value;
+                return yorch::step_result::success();
+            },
+            yorch::borrow_prev<std::string>()));
+
+    auto plan = yorch::compile_plan(tree);
+    const auto result = yorch::run_plan(plan);
+
+    EXPECT_TRUE(result.ok());
+    EXPECT_EQ(worker.base, 6);
+    EXPECT_EQ(seen_child, "6");
+}
+
+TEST(TaskTreeTest, PreboundMemberTaskSupportsCopyPrevReceiver) {
+    int seen_value = 0;
+
+    auto tree = yorch::task_tree
+        .root(yorch::bind([]() noexcept -> member_tree_worker {
+            member_tree_worker worker;
+            worker.base = 8;
+            return worker;
+        }))
+        .node<1>(yorch::bind_member(
+            &member_tree_worker::seed,
+            yorch::copy_prev<member_tree_worker>(),
+            yorch::value(4)))
+        .node<2>(yorch::bind(
+            [&](const int& value) noexcept -> yorch::step_result {
+                seen_value = value;
+                return yorch::step_result::success();
+            },
+            yorch::borrow_prev<int>()));
+
+    auto plan = yorch::compile_plan(tree);
+    const auto result = yorch::run_plan(plan);
+
+    EXPECT_TRUE(result.ok());
+    EXPECT_EQ(seen_value, 12);
+}
+
+TEST(TaskTreeTest, PreboundMemberDirectOutputTaskSupportsConsumePrevReceiver) {
+    std::string seen_value;
+
+    auto tree = yorch::task_tree
+        .root(yorch::bind([]() noexcept -> move_only_tree_worker {
+            return move_only_tree_worker {15};
+        }))
+        .node_into<1>(yorch::bind_into_member<std::string>(
+            &move_only_tree_worker::emit_text,
+            yorch::consume_prev<move_only_tree_worker>()))
+        .node<2>(yorch::bind(
+            [&](const std::string& value) noexcept -> yorch::step_result {
+                seen_value = value;
+                return yorch::step_result::success();
+            },
+            yorch::borrow_prev<std::string>()));
+
+    auto plan = yorch::compile_plan(tree);
+    const auto result = yorch::run_plan(plan);
+
+    EXPECT_TRUE(result.ok());
+    EXPECT_EQ(seen_value, "15");
 }
 
 TEST(TaskTreeTest, RootCallableWithDefaultCatchAdapterWrapsBoundTask) {

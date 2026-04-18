@@ -1,6 +1,38 @@
 #include "support.hpp"
+#include <gtest/gtest.h>
 
 using namespace executor_test_support;
+
+namespace {
+
+struct member_prev_worker {
+    int value = 0;
+
+    int mutate(int delta) noexcept {
+        value += delta;
+        return value;
+    }
+
+    int mutate_from_view(const member_prev_worker& other) noexcept {
+        value += other.value;
+        return value;
+    }
+
+    int mutate_with_copy(member_prev_worker other) noexcept {
+        value += other.value;
+        return value;
+    }
+
+    [[nodiscard]] int read_plus(int delta) const noexcept {
+        return value + delta;
+    }
+
+    [[nodiscard]] int read_with_copy(member_prev_worker other) const noexcept {
+        return value + other.value;
+    }
+};
+
+}  // namespace
 
 TEST(ExecutorTest, RunPlanSupportsExclusiveMutablePrevBorrowForSingleChild) {
     int seen_mutated = 0;
@@ -29,6 +61,32 @@ TEST(ExecutorTest, RunPlanSupportsExclusiveMutablePrevBorrowForSingleChild) {
     EXPECT_TRUE(result.ok());
     EXPECT_EQ(seen_mutated, 9);
     EXPECT_EQ(seen_grandchild, 9);
+}
+
+TEST(ExecutorTest, RunPlanSupportsBorrowPrevMutReceiverForMemberTask) {
+    int seen_child = 0;
+
+    auto tree = yorch::task_tree.root(yorch::bind([]() noexcept -> member_prev_worker {
+            member_prev_worker worker;
+            worker.value = 5;
+            return worker;
+        }))
+        .node<1>(yorch::bind_member(
+            &member_prev_worker::mutate,
+            yorch::borrow_prev_mut<member_prev_worker>(),
+            yorch::value(4)))
+        .node<2>(yorch::bind(
+            [&](const int& value) noexcept -> yorch::step_result {
+                seen_child = value;
+                return yorch::step_result::success();
+            },
+            yorch::borrow_prev<int>()));
+
+    auto plan = yorch::compile_plan(tree);
+    const auto result = yorch::run_plan(plan);
+
+    EXPECT_TRUE(result.ok());
+    EXPECT_EQ(seen_child, 9);
 }
 
 TEST(ExecutorTest, RunPlanSupportsConsumePrevForSingleChildMoveOnlyPayload) {
@@ -112,6 +170,108 @@ TEST(ExecutorTest, RunPlanAllowsReadonlyBorrowFanoutAndRejectsExclusiveAccessFan
 
     const auto result = yorch::run_plan(valid_plan);
     EXPECT_TRUE(result.ok());
+}
+
+TEST(ExecutorTest, RunPlanRejectsReadonlyReceiverForMutableMemberFunction) {
+    auto invalid_tree = yorch::task_tree.root(yorch::bind([]() noexcept -> member_prev_worker {
+            member_prev_worker worker;
+            worker.value = 1;
+            return worker;
+        }))
+        .node<1>(yorch::bind_member(
+            &member_prev_worker::mutate,
+            yorch::borrow_prev<member_prev_worker>(),
+            yorch::value(3)));
+    auto invalid_plan = yorch::compile_plan(invalid_tree);
+
+    static_assert(!can_run_plan<decltype(invalid_plan)>);
+    SUCCEED();
+}
+
+TEST(ExecutorTest, RunPlanSupportsConsumePrevReceiverForMemberFunction) {
+    int seen_child = 0;
+
+    auto tree = yorch::task_tree.root(yorch::bind([]() noexcept -> member_prev_worker {
+            member_prev_worker worker;
+            worker.value = 1;
+            return worker;
+        }))
+        .node<1>(yorch::bind_member(
+            &member_prev_worker::mutate,
+            yorch::consume_prev<member_prev_worker>(),
+            yorch::value(3)))
+        .node<2>(yorch::bind(
+            [&](const int& value) noexcept -> yorch::step_result {
+                seen_child = value;
+                return yorch::step_result::success();
+            },
+            yorch::borrow_prev<int>()));
+    auto plan = yorch::compile_plan(tree);
+
+    static_assert(can_run_plan<decltype(plan)>);
+
+    const auto result = yorch::run_plan(plan);
+    EXPECT_TRUE(result.ok());
+    EXPECT_EQ(seen_child, 4);
+}
+
+TEST(ExecutorTest, RunPlanAllowsCopyPrevReceiverWithSharedPrevAccess) {
+    int seen_total = 0;
+
+    auto tree = yorch::task_tree.root(yorch::bind([]() noexcept -> member_prev_worker {
+            member_prev_worker worker;
+            worker.value = 2;
+            return worker;
+        }))
+        .node<1>(yorch::bind_member(
+            &member_prev_worker::read_with_copy,
+            yorch::copy_prev<member_prev_worker>(),
+            yorch::copy_prev<member_prev_worker>()))
+        .node<2>(yorch::bind(
+            [&](const int& value) noexcept -> yorch::step_result {
+                seen_total = value;
+                return yorch::step_result::success();
+            },
+            yorch::borrow_prev<int>()));
+    auto plan = yorch::compile_plan(tree);
+
+    static_assert(can_run_plan<decltype(plan)>);
+
+    const auto result = yorch::run_plan(plan);
+    EXPECT_TRUE(result.ok());
+    EXPECT_EQ(seen_total, 4);
+}
+
+TEST(ExecutorTest, RunPlanRejectsConsumePrevReceiverMixedWithAdditionalPrevAccess) {
+    auto invalid_tree = yorch::task_tree.root(yorch::bind([]() noexcept -> member_prev_worker {
+            member_prev_worker worker;
+            worker.value = 1;
+            return worker;
+        }))
+        .node<1>(yorch::bind_member(
+            &member_prev_worker::mutate_with_copy,
+            yorch::consume_prev<member_prev_worker>(),
+            yorch::copy_prev<member_prev_worker>()));
+    auto invalid_plan = yorch::compile_plan(invalid_tree);
+
+    static_assert(!can_run_plan<decltype(invalid_plan)>);
+    SUCCEED();
+}
+
+TEST(ExecutorTest, RunPlanRejectsBorrowPrevMutReceiverMixedWithSharedPrevAccess) {
+    auto invalid_tree = yorch::task_tree.root(yorch::bind([]() noexcept -> member_prev_worker {
+            member_prev_worker worker;
+            worker.value = 1;
+            return worker;
+        }))
+        .node<1>(yorch::bind_member(
+            &member_prev_worker::mutate_from_view,
+            yorch::borrow_prev_mut<member_prev_worker>(),
+            yorch::borrow_prev<member_prev_worker>()));
+    auto invalid_plan = yorch::compile_plan(invalid_tree);
+
+    static_assert(!can_run_plan<decltype(invalid_plan)>);
+    SUCCEED();
 }
 
 TEST(ExecutorTest, RunPlanAllowsCopyPrevOnSingleChildAndFanoutPaths) {
@@ -364,6 +524,24 @@ TEST(ExecutorTest, RunPlanRejectsConsumePrevInsideRetryAdapter) {
                         : yorch::step_result::failure();
                 },
                 yorch::consume_prev<int>()),
+            yorch::retry_fixed_policy {1}));
+    auto invalid_retry_plan = yorch::compile_plan(invalid_retry_tree);
+
+    static_assert(!can_run_plan<decltype(invalid_retry_plan)>);
+    SUCCEED();
+}
+
+TEST(ExecutorTest, RunPlanRejectsConsumePrevReceiverInsideRetryAdapter) {
+    auto invalid_retry_tree = yorch::task_tree.root(yorch::bind([]() noexcept -> member_prev_worker {
+            member_prev_worker worker;
+            worker.value = 3;
+            return worker;
+        }))
+        .node<1>(yorch::with_retry(
+            yorch::bind_member(
+                &member_prev_worker::mutate,
+                yorch::consume_prev<member_prev_worker>(),
+                yorch::value(2)),
             yorch::retry_fixed_policy {1}));
     auto invalid_retry_plan = yorch::compile_plan(invalid_retry_tree);
 

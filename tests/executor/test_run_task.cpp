@@ -22,6 +22,24 @@ struct mismatched_declared_task {
     }
 };
 
+struct member_executor_worker {
+    int seen = 0;
+    int base = 0;
+
+    yorch::step_result mutate(int& value, int delta) noexcept {
+        seen = value;
+        base += delta;
+        value += delta;
+        return yorch::step_result::success();
+    }
+
+    yorch::step_result emit(int& value, yorch::direct_out<int> out) noexcept {
+        seen = value;
+        value += base;
+        return out.success(value);
+    }
+};
+
 }  // namespace
 
 static_assert(yorch::executable_task<noexcept_task&, void>);
@@ -173,6 +191,47 @@ TEST(ExecutorTest, RunTaskIntoSupportsDirectOutputTasks) {
     EXPECT_EQ(ctx.get<int>(), 7);
     EXPECT_TRUE(slot.has_value());
     EXPECT_EQ(slot.get(), 14);
+}
+
+TEST(ExecutorTest, RunTaskSupportsBoundMemberTask) {
+    member_executor_worker worker;
+    yorch::context<int> ctx(4);
+    yorch::exec_context<decltype(ctx)> exec {ctx};
+
+    auto task = yorch::bind_member(
+        &member_executor_worker::mutate,
+        yorch::value(std::ref(worker)),
+        yorch::from_ctx<int>(),
+        yorch::value(3));
+
+    const auto result = yorch::run_task(task, exec);
+
+    EXPECT_TRUE(result.ok());
+    EXPECT_EQ(worker.seen, 4);
+    EXPECT_EQ(worker.base, 3);
+    EXPECT_EQ(ctx.get<int>(), 7);
+}
+
+TEST(ExecutorTest, RunTaskIntoSupportsBoundMemberDirectOutputTask) {
+    member_executor_worker worker;
+    worker.base = 2;
+
+    yorch::context<int> ctx(5);
+    yorch::exec_context<decltype(ctx)> exec {ctx};
+
+    auto task = yorch::bind_into_member<int>(
+        &member_executor_worker::emit,
+        yorch::value(std::ref(worker)),
+        yorch::from_ctx<int>());
+
+    yorch::detail::typed_slot<int> slot;
+    const auto result = yorch::run_task_into(task, exec, yorch::direct_out<int> {slot});
+
+    EXPECT_TRUE(result.ok());
+    EXPECT_EQ(worker.seen, 5);
+    EXPECT_EQ(ctx.get<int>(), 7);
+    EXPECT_TRUE(slot.has_value());
+    EXPECT_EQ(slot.get(), 7);
 }
 
 TEST(ExecutorTest, RunTaskExecutesCatchAsFailureAdapterEndToEnd) {

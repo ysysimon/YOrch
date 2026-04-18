@@ -96,6 +96,44 @@ runner r(std::move(tree));
 
 如果 `tree` 只是 compile 的一次性输入，通常没有必要把 `task_tree_builder` 也作为成员长期保存。
 
+## Member Functions
+
+成员函数请显式使用 `bind_member(...)` 或 `bind_into_member(...)`，不要把 `&Class::method` 直接传给 `bind(...)`、`task(...)` 或 `task_tree.root(...)` 这类普通 callable 入口。
+
+示例：
+
+```cpp
+struct worker {
+    int run(int value) noexcept { return value + 1; }
+
+    yorch::step_result emit(
+        int value,
+        yorch::direct_out<std::string> out) noexcept {
+        return out.success(std::to_string(value));
+    }
+};
+
+worker w;
+
+auto task = yorch::bind_member(
+    &worker::run,
+    yorch::value(std::ref(w)),
+    yorch::value(41));
+
+auto direct_output_task = yorch::bind_into_member<std::string>(
+    &worker::emit,
+    yorch::value(std::ref(w)),
+    yorch::value(42));
+```
+
+receiver 也可以来自 `context` 或 direct parent：
+
+- `from_ctx<T>()`：从 `context` 借用对象
+- `borrow_prev<T>()`：从 direct parent 只读借用对象，只能绑定到 `const member function`
+- `borrow_prev_mut<T>()`：从 direct parent 可变借用对象
+- `copy_prev<T>()`：从 direct parent 复制一个副本，在副本上调用成员函数，不会回写 parent
+- `consume_prev<T>()`：从 direct parent move 出对象后调用成员函数，会按 exclusive access 处理，因此不能和其他 `prev_access` 绑定混用，也不能进入 `retry(...)`
+
 ## Roadmap
 
 1. `Phase 1`：补齐 `step_result`、`exec_context`、`value/from_ctx`、`bind`
