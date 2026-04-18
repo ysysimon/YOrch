@@ -4,7 +4,7 @@
 #include <type_traits>
 #include <utility>
 
-#include "../../bind.hpp"
+#include "../../bind/builders.hpp"
 
 namespace yorch::detail {
 

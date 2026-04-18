@@ -5,7 +5,8 @@
 #include <tuple>
 #include <type_traits>
 
-#include "../../bind.hpp"
+#include "../../bind/tasks.hpp"
+#include "../../detail/bind/traits.hpp"
 #include "../../specs.hpp"
 #include "../../task_adapters/catch_as_failure.hpp"
 #include "../../task_adapters/retry.hpp"

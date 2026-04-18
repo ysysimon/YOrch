@@ -2,7 +2,8 @@
 
 #include <type_traits>
 
-#include "../../bind.hpp" // IWYU pragma: keep
+#include "../../bind/adapters.hpp" // IWYU pragma: keep
+#include "../../detail/bind/traits.hpp" // IWYU pragma: keep
 #include "../task_adapters/traits.hpp" // IWYU pragma: keep
 #include "../../plan/traits.hpp" // IWYU pragma: keep
 #include "../../task_tree/policies.hpp" // IWYU pragma: keep
