@@ -52,6 +52,12 @@ yorch_add_gtest(
   executor/test_run_plan_fanout.cpp
 )
 yorch_add_gtest(test_task_adapters yorch::yorch test_task_adapters.cpp)
-yorch_add_gtest(test_task_tree yorch::yorch test_task_tree.cpp)
+yorch_add_gtest(
+  test_task_tree
+  yorch::yorch
+  task_tree/test_builder.cpp
+  task_tree/test_callable_sugar.cpp
+  task_tree/test_member_sugar.cpp
+)
 yorch_add_gtest(test_plan yorch::yorch test_plan.cpp)
 yorch_add_gtest(test_slots yorch::yorch test_slots.cpp)
