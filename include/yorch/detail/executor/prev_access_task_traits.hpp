@@ -123,6 +123,18 @@ struct task_binding_view<bound_member_task<F, ReceiverSpec, Specs...>> {
 };
 
 template <typename F, typename ReceiverSpec, typename T, typename... Specs>
+struct task_binding_view<bound_member_forward_prev_task<F, ReceiverSpec, T, Specs...>> {
+    using callable_type = std::remove_cvref_t<F>;
+    using receiver_spec = std::remove_cvref_t<ReceiverSpec>;
+    using specs_tuple = std::tuple<Specs...>;
+
+    static constexpr bool has_receiver = true;
+
+    template <std::size_t I>
+    using arg = member_nth_arg_t<I, callable_type>;
+};
+
+template <typename F, typename ReceiverSpec, typename T, typename... Specs>
 struct task_binding_view<bound_member_output_task<F, ReceiverSpec, T, Specs...>> {
     using callable_type = std::remove_cvref_t<F>;
     using receiver_spec = std::remove_cvref_t<ReceiverSpec>;
@@ -217,6 +229,11 @@ template <typename F, typename ReceiverSpec, typename... Specs>
 struct task_prev_access_traits_impl<bound_member_task<F, ReceiverSpec, Specs...>>
     : task_prev_access_traits_from_binding_view<
           bound_member_task<F, ReceiverSpec, Specs...>> {};
+
+template <typename F, typename ReceiverSpec, typename T, typename... Specs>
+struct task_prev_access_traits_impl<bound_member_forward_prev_task<F, ReceiverSpec, T, Specs...>>
+    : task_prev_access_traits_from_binding_view<
+          bound_member_forward_prev_task<F, ReceiverSpec, T, Specs...>> {};
 
 template <typename F, typename ReceiverSpec, typename T, typename... Specs>
 struct task_prev_access_traits_impl<bound_member_output_task<F, ReceiverSpec, T, Specs...>>

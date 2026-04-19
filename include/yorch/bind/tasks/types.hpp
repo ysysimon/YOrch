@@ -8,7 +8,7 @@
 #include "../../context.hpp"
 #include "../../resolve.hpp"
 #include "../../slots.hpp"
-#include "../../task_adapters.hpp"
+#include "../../task_adapters.hpp" // IWYU pragma: keep
 #include "../../detail/bind/member_receiver.hpp"
 #include "../../detail/bind/traits.hpp"
 
@@ -150,6 +150,49 @@ private:
         return std::invoke(
             func,
             resolve_as<detail::nth_arg_t<I, F>>(std::get<I>(specs), ec)...);
+    }
+};
+
+template <typename F, typename ReceiverSpec, typename T, typename... Specs>
+struct bound_member_forward_prev_task {
+    using raw_result_type = step_result;
+    using output_type = T;
+    using output_protocol = detail::forward_prev_output_protocol_tag;
+
+    F func;
+    ReceiverSpec receiver_spec;
+    std::tuple<Specs...> specs;
+
+    template <typename Ctx, typename Prev>
+    constexpr step_result invoke_raw(exec_context<Ctx, Prev>& ec)
+        noexcept(noexcept(call_impl_raw(ec, std::index_sequence_for<Specs...> {}))) {
+        using call_result_t =
+            decltype(call_impl_raw(ec, std::index_sequence_for<Specs...> {}));
+
+        if constexpr (std::is_void_v<call_result_t>) {
+            call_impl_raw(ec, std::index_sequence_for<Specs...> {});
+            return step_result::success();
+        } else {
+            static_assert(std::is_same_v<std::remove_cvref_t<call_result_t>, step_result>,
+                          "bind_forward_prev_member(...) callable must return void or yorch::step_result");
+            return call_impl_raw(ec, std::index_sequence_for<Specs...> {});
+        }
+    }
+
+private:
+    template <typename Ctx, typename Prev, std::size_t... I>
+    constexpr decltype(auto) call_impl_raw(
+        exec_context<Ctx, Prev>& ec,
+        std::index_sequence<I...>)
+        noexcept(noexcept(detail::invoke_member_with_receiver(
+            func,
+            detail::resolve_member_receiver<F>(receiver_spec, ec),
+            resolve_as<detail::member_nth_arg_t<I, F>>(std::get<I>(specs), ec)...))) {
+        auto receiver = detail::resolve_member_receiver<F>(receiver_spec, ec);
+        return detail::invoke_member_with_receiver(
+            func,
+            std::move(receiver),
+            resolve_as<detail::member_nth_arg_t<I, F>>(std::get<I>(specs), ec)...);
     }
 };
 

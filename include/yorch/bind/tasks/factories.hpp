@@ -84,6 +84,30 @@ constexpr auto bind_forward_prev(F&& f, Specs&&... specs) {
     };
 }
 
+template <typename T, typename F>
+// NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
+constexpr void bind_forward_prev_member(F&&) {
+    static_assert(
+        detail::always_false_v<std::tuple<T, F>>,
+        "bind_forward_prev_member(...) requires an explicit receiver binding as its second argument");
+}
+
+template <typename T, typename F, typename ReceiverSpec, typename... Specs>
+constexpr auto bind_forward_prev_member(F&& f, ReceiverSpec&& receiver_spec, Specs&&... specs) {
+    detail::emit_bind_forward_prev_member_diagnostic<T, F, ReceiverSpec, Specs...>();
+
+    return bound_member_forward_prev_task<
+        std::decay_t<F>,
+        std::decay_t<ReceiverSpec>,
+        T,
+        std::decay_t<Specs>...
+    >{
+        std::forward<F>(f),
+        std::forward<ReceiverSpec>(receiver_spec),
+        std::tuple<std::decay_t<Specs>...> {std::forward<Specs>(specs)...}
+    };
+}
+
 template <typename F>
 // NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
 constexpr void bind_member(F&&) {

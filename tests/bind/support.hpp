@@ -105,6 +105,11 @@ struct move_only_member_worker {
         return state;
     }
 
+    yorch::step_result adjust(int delta) noexcept {
+        state += delta;
+        return yorch::step_result::success();
+    }
+
     [[nodiscard]] yorch::step_result emit(yorch::direct_out<int> out) const noexcept {
         return out.success(state);
     }

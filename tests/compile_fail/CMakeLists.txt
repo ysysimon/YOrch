@@ -162,6 +162,66 @@ yorch_expect_compile_failure(
 )
 
 yorch_expect_compile_failure(
+  bind_forward_prev_member_void_output
+  "bind_forward_prev_member<T>(...) requires a non-void owned payload type T"
+  "bind_forward_prev_member void output"
+)
+
+yorch_expect_compile_failure(
+  bind_forward_prev_member_reference_output
+  "bind_forward_prev_member<T>(...) requires a non-void owned payload type T"
+  "bind_forward_prev_member reference output"
+)
+
+yorch_expect_compile_failure(
+  bind_forward_prev_member_not_member
+  "bind_forward_prev_member(...) requires a non-static member function pointer"
+  "bind_forward_prev_member non-member callable"
+)
+
+yorch_expect_compile_failure(
+  bind_forward_prev_member_direct_output
+  "bind_forward_prev_member(...) does not accept direct-output member functions; use bind_into_member(...) instead"
+  "bind_forward_prev_member direct-output member"
+)
+
+yorch_expect_compile_failure(
+  bind_forward_prev_member_missing_receiver
+  "bind_forward_prev_member(...) requires an explicit receiver binding as its second argument"
+  "bind_forward_prev_member missing receiver"
+)
+
+yorch_expect_compile_failure(
+  bind_forward_prev_member_prev_access_count
+  "bind_forward_prev_member<T>(...) requires exactly one prev-access binding across receiver and member-function parameters"
+  "bind_forward_prev_member prev-access count"
+)
+
+yorch_expect_compile_failure(
+  bind_forward_prev_member_borrow_prev
+  "bind_forward_prev_member<T>(...) only supports borrow_prev_mut<T>() -> T& or consume_prev<T>() -> T&&"
+  "bind_forward_prev_member borrow_prev binding"
+)
+
+yorch_expect_compile_failure(
+  bind_forward_prev_member_copy_prev
+  "bind_forward_prev_member<T>(...) only supports borrow_prev_mut<T>() -> T& or consume_prev<T>() -> T&&"
+  "bind_forward_prev_member copy_prev binding"
+)
+
+yorch_expect_compile_failure(
+  bind_forward_prev_member_consume_by_value
+  "bind_forward_prev_member<T>(...) does not support consume_prev<T>() bound to T; use T&& if you want to forward the direct parent object identity"
+  "bind_forward_prev_member consume by value"
+)
+
+yorch_expect_compile_failure(
+  bind_forward_prev_member_payload_mismatch
+  "bind_forward_prev_member<T>(...) requires the forwarded prev payload type to match T exactly"
+  "bind_forward_prev_member payload mismatch"
+)
+
+yorch_expect_compile_failure(
   bind_forward_prev_prev_access_count
   "bind_forward_prev<T>(...) requires exactly one prev-access binding"
   "bind_forward_prev prev-access count"
