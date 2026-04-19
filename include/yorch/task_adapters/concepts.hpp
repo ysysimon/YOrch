@@ -26,7 +26,7 @@ concept adapter_wrappable_task =
 
 template <typename Task, typename Ctx, typename Prev = no_prev>
 concept direct_output_task =
-    detail::has_declared_task_output_v<Task> &&
+    detail::task_uses_direct_output_protocol_v<Task> &&
     requires(Task& task, exec_context<Ctx, Prev>& ec) {
         {
             task.invoke_into(

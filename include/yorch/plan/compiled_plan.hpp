@@ -61,6 +61,10 @@ struct compiled_plan {
     using output_type = detail::task_output_for_t<task_type<I>>;
 
     template <std::size_t I>
+    static constexpr detail::output_storage_mode output_storage_mode_for =
+        detail::task_output_storage_mode_v<task_type<I>>;
+
+    template <std::size_t I>
     static constexpr detail::slot_logical_policy slot_logical_policy_for =
         detail::task_slot_logical_policy_v<task_type<I>>;
 

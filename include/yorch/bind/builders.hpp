@@ -13,6 +13,9 @@ namespace yorch {
 template <typename F, typename AdapterChain>
 struct task_into_binder;
 
+template <typename F, typename AdapterChain>
+struct task_forward_prev_binder;
+
 template <typename F, typename ReceiverSpec, typename AdapterChain>
 struct task_member_receiver_binder;
 
@@ -61,6 +64,38 @@ struct task_into_binder {
     constexpr auto operator()(Specs&&... specs) && {
         return yorch::apply_adapters(
             yorch::bind_into<output_type>(std::move(func), std::forward<Specs>(specs)...),
+            std::move(adapter_specs));
+    }
+};
+
+template <typename F, typename AdapterChain>
+struct task_forward_prev_binder {
+    F func;
+    AdapterChain adapter_specs;
+
+    template <typename... Specs>
+        requires detail::inferred_forward_prev_signature_matches<F, Specs...>
+    constexpr auto operator()(Specs&&... specs) const& {
+        using output_type = detail::forward_prev_unique_prev_payload_t<std::decay_t<Specs>...>;
+
+        static_assert(!std::is_void_v<output_type>,
+                      "yorch::task_forward_prev(...) requires exactly one prev-access binding");
+
+        return yorch::apply_adapters(
+            yorch::bind_forward_prev<output_type>(func, std::forward<Specs>(specs)...),
+            adapter_specs);
+    }
+
+    template <typename... Specs>
+        requires detail::inferred_forward_prev_signature_matches<F, Specs...>
+    constexpr auto operator()(Specs&&... specs) && {
+        using output_type = detail::forward_prev_unique_prev_payload_t<std::decay_t<Specs>...>;
+
+        static_assert(!std::is_void_v<output_type>,
+                      "yorch::task_forward_prev(...) requires exactly one prev-access binding");
+
+        return yorch::apply_adapters(
+            yorch::bind_forward_prev<output_type>(std::move(func), std::forward<Specs>(specs)...),
             std::move(adapter_specs));
     }
 };
@@ -196,6 +231,28 @@ constexpr auto task_into(F&& f, AdapterChain&& adapter_specs)
     };
 }
 
+template <typename F>
+constexpr auto task_forward_prev(F&& f)
+    requires detail::inferable_forward_prev_callable<F> {
+    return task_forward_prev_binder<std::decay_t<F>, adapter_chain<>> {
+        std::forward<F>(f),
+        {}
+    };
+}
+
+template <typename F, typename AdapterChain>
+constexpr auto task_forward_prev(F&& f, AdapterChain&& adapter_specs)
+    requires detail::inferable_forward_prev_callable<F> &&
+             detail::adapter_chain_like<AdapterChain> {
+    return task_forward_prev_binder<
+        std::decay_t<F>,
+        std::decay_t<AdapterChain>
+    > {
+        std::forward<F>(f),
+        std::forward<AdapterChain>(adapter_specs)
+    };
+}
+
 template <typename F, typename ReceiverSpec>
 constexpr auto task_into_member(F&& f, ReceiverSpec&& receiver_spec)
     requires detail::inferable_direct_output_member_callable<F> &&
@@ -251,7 +308,7 @@ template <typename Task>
 // NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
 constexpr void task(Task&&)
     requires detail::bind_task_object<Task> &&
-             detail::has_declared_task_output_v<Task> {
+             detail::task_uses_direct_output_protocol_v<Task> {
     static_assert(
         detail::always_false_v<Task>,
         "yorch::task(...) does not accept prebuilt direct-output tasks; pass them directly to root_into(...) or node_into<Level>(...) instead.");
@@ -303,6 +360,63 @@ constexpr void task_into(F&&)
     static_assert(
         detail::always_false_v<F>,
         "yorch::task_into(...) requires a callable whose last parameter is yorch::direct_out<T>; use yorch::task(...) for ordinary tasks.");
+}
+
+template <typename Task>
+// NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
+constexpr void task_forward_prev(Task&&)
+    requires detail::bind_task_object<Task> {
+    static_assert(
+        detail::always_false_v<Task>,
+        "yorch::task_forward_prev(...) only accepts a callable; pass prebuilt tasks directly to root/node instead.");
+}
+
+template <typename Task, typename AdapterChain>
+// NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
+constexpr void task_forward_prev(Task&&, AdapterChain&&)
+    requires detail::bind_task_object<Task> &&
+             detail::adapter_chain_like<AdapterChain> {
+    static_assert(
+        detail::always_false_v<std::tuple<Task, AdapterChain>>,
+        "yorch::task_forward_prev(...) only accepts a callable; pass prebuilt tasks directly to root/node instead.");
+}
+
+template <typename F>
+// NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
+constexpr void task_forward_prev(F&&)
+    requires detail::inferable_direct_output_callable<F> {
+    static_assert(
+        detail::always_false_v<F>,
+        "yorch::task_forward_prev(...) does not accept callables with yorch::direct_out<T>; use yorch::task_into(...) for direct-output materialization.");
+}
+
+template <typename F, typename AdapterChain>
+// NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
+constexpr void task_forward_prev(F&&, AdapterChain&&)
+    requires detail::inferable_direct_output_callable<F> &&
+             detail::adapter_chain_like<AdapterChain> {
+    static_assert(
+        detail::always_false_v<std::tuple<F, AdapterChain>>,
+        "yorch::task_forward_prev(...) does not accept callables with yorch::direct_out<T>; use yorch::task_into(...) for direct-output materialization.");
+}
+
+template <typename F>
+// NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
+constexpr void task_forward_prev(F&&)
+    requires detail::member_bind_callable<F> {
+    static_assert(
+        detail::always_false_v<F>,
+        "yorch::task_forward_prev(...) does not support member function pointers in v1.");
+}
+
+template <typename F, typename AdapterChain>
+// NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
+constexpr void task_forward_prev(F&&, AdapterChain&&)
+    requires detail::member_bind_callable<F> &&
+             detail::adapter_chain_like<AdapterChain> {
+    static_assert(
+        detail::always_false_v<std::tuple<F, AdapterChain>>,
+        "yorch::task_forward_prev(...) does not support member function pointers in v1.");
 }
 
 template <typename F>

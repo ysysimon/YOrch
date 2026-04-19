@@ -18,7 +18,8 @@ namespace yorch {
 template <typename Task>
 struct catch_failure_task
     : detail::catch_failure_task_raw_result_base<Task>,
-      detail::forwarded_task_output_base<Task> {
+      detail::forwarded_task_output_base<Task>,
+      detail::forwarded_task_output_protocol_base<Task> {
     Task task;
 
     constexpr explicit catch_failure_task(Task&& stored_task)
@@ -89,7 +90,8 @@ struct catch_failure_task
 template <typename Task, typename Policy>
 struct catch_failure_with_policy_task
     : detail::catch_failure_with_policy_task_raw_result_base<Task, Policy>,
-      detail::forwarded_task_output_base<Task> {
+      detail::forwarded_task_output_base<Task>,
+      detail::forwarded_task_output_protocol_base<Task> {
     Task task;
     Policy policy;
 

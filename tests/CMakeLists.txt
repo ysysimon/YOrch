@@ -27,28 +27,7 @@ function(yorch_add_gtest target_name link_target)
   )
 endfunction()
 
-try_compile(
-  YORCH_TASK_RESULT_VOID_REJECTED
-  "${CMAKE_CURRENT_BINARY_DIR}/compile_fail/task_result_void"
-  "${CMAKE_CURRENT_SOURCE_DIR}/compile_fail/task_result_void"
-  task_result_void
-  OUTPUT_VARIABLE YORCH_TASK_RESULT_VOID_OUTPUT
-)
-
-if(YORCH_TASK_RESULT_VOID_REJECTED)
-  message(FATAL_ERROR
-    "Expected yorch::task_result<void> compile-fail test to be rejected, but it compiled successfully.")
-endif()
-
-string(FIND
-  "${YORCH_TASK_RESULT_VOID_OUTPUT}"
-  "yorch::task_result<void> is not supported"
-  YORCH_TASK_RESULT_VOID_MESSAGE_POS)
-
-if(YORCH_TASK_RESULT_VOID_MESSAGE_POS EQUAL -1)
-  message(FATAL_ERROR
-    "Expected yorch::task_result<void> compile-fail test to mention the migration guidance, but compiler output was:\n${YORCH_TASK_RESULT_VOID_OUTPUT}")
-endif()
+add_subdirectory(compile_fail)
 
 yorch_add_gtest(test_result yorch::yorch test_result.cpp)
 yorch_add_gtest(test_context yorch::yorch test_context.cpp)

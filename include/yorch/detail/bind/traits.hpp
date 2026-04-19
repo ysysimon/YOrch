@@ -208,6 +208,10 @@ concept ordinary_bind_callable =
     !inferable_direct_output_callable<F>;
 
 template <typename F>
+concept inferable_forward_prev_callable =
+    ordinary_bind_callable<F>;
+
+template <typename F>
 concept inferable_direct_output_member_callable =
     member_bind_callable<F> &&
     member_function_traits<std::remove_cvref_t<F>>::arity > 0 &&
@@ -252,6 +256,11 @@ template <typename F, typename... Specs>
 concept inferred_bind_into_signature_matches =
     inferable_direct_output_callable<F> &&
     function_traits<std::remove_cvref_t<F>>::arity == sizeof...(Specs) + 1;
+
+template <typename F, typename... Specs>
+concept inferred_forward_prev_signature_matches =
+    inferable_forward_prev_callable<F> &&
+    function_traits<std::remove_cvref_t<F>>::arity == sizeof...(Specs);
 
 template <typename F, typename... Specs>
 concept inferred_member_bound_into_signature_matches =

@@ -36,6 +36,20 @@ enum class slot_physical_policy : unsigned char {
 };
 
 /**
+ * @brief Describes how a node's logical output is backed at runtime.
+ *
+ * `none` means the node has no output payload. `owned` means the node owns
+ * physical slot storage for its output. `forwarded_prev` means the node has a
+ * logical output type, but its value is statically forwarded from the direct
+ * parent's canonical owner rather than materialized into a new slot.
+ */
+enum class output_storage_mode : unsigned char {
+    none,
+    owned,
+    forwarded_prev,
+};
+
+/**
  * @brief Sentinel physical slot index meaning "this node has no storage".
  *
  * Layouts assign real physical slot indices only to payload-producing nodes.

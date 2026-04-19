@@ -4,7 +4,7 @@
 
 #include "../../bind/adapters.hpp" // IWYU pragma: keep
 #include "../../detail/bind/traits.hpp" // IWYU pragma: keep
-#include "../task_adapters/traits.hpp" // IWYU pragma: keep
+#include "../task/traits.hpp" // IWYU pragma: keep
 #include "../../plan/traits.hpp" // IWYU pragma: keep
 #include "../../task_tree/policies.hpp" // IWYU pragma: keep
 
@@ -21,7 +21,7 @@ concept callable_task_argument =
 template <typename Task>
 concept direct_output_task_object_argument =
     task_object_argument<Task> &&
-    has_declared_task_output_v<Task>;
+    task_uses_direct_output_protocol_v<Task>;
 
 template <typename Task>
 concept ordinary_task_object_argument =

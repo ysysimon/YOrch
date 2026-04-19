@@ -31,6 +31,11 @@ template <typename Plan, std::size_t I>
 [[nodiscard]] consteval bool node_prev_source_valid() {
     using task_t = typename Plan::template task_type<I>;
 
+    // if the task uses the forward-prev-output protocol, check will be deferred to the forward-prev-source validation step, so we can allow prev access here regardless of parentage
+    if constexpr (task_uses_forward_prev_output_protocol_v<task_t>) {
+        return true;
+    }
+
     if constexpr (Plan::template parent_index<I> == Plan::no_parent) {
         return !task_uses_prev_access_v<task_t>;
     } else {
@@ -57,6 +62,21 @@ template <typename Plan, std::size_t I>
     return task_prev_access_valid_v<task_t>;
 }
 
+template <typename Plan, std::size_t I>
+    requires prev_access_validatable_plan_node<Plan, I>
+[[nodiscard]] consteval bool node_forward_prev_source_valid() {
+    using task_t = typename Plan::template task_type<I>;
+
+    if constexpr (!task_uses_forward_prev_output_protocol_v<task_t>) {
+        return true;
+    } else if constexpr (Plan::template parent_index<I> == Plan::no_parent) {
+        return false;
+    } else {
+        constexpr auto parent = Plan::template parent_index<I>;
+        return !std::is_void_v<typename Plan::template output_type<parent>>;
+    }
+}
+
 template <typename Plan, std::size_t... I>
     requires (prev_access_validatable_plan_node<Plan, I> && ...)
 [[nodiscard]] consteval bool plan_prev_source_valid_impl(std::index_sequence<I...>) {
@@ -69,6 +89,12 @@ template <typename Plan, std::size_t... I>
     return (node_prev_access_valid<Plan, I>() && ...);
 }
 
+template <typename Plan, std::size_t... I>
+    requires (prev_access_validatable_plan_node<Plan, I> && ...)
+[[nodiscard]] consteval bool plan_forward_prev_source_valid_impl(std::index_sequence<I...>) {
+    return (node_forward_prev_source_valid<Plan, I>() && ...);
+}
+
 template <typename Plan>
 inline constexpr bool plan_prev_source_valid_v =
     plan_prev_source_valid_impl<Plan>(std::make_index_sequence<Plan::node_count> {});
@@ -76,5 +102,9 @@ inline constexpr bool plan_prev_source_valid_v =
 template <typename Plan>
 inline constexpr bool plan_prev_access_valid_v =
     plan_prev_access_valid_impl<Plan>(std::make_index_sequence<Plan::node_count> {});
+
+template <typename Plan>
+inline constexpr bool plan_forward_prev_source_valid_v =
+    plan_forward_prev_source_valid_impl<Plan>(std::make_index_sequence<Plan::node_count> {});
 
 } // namespace yorch::detail

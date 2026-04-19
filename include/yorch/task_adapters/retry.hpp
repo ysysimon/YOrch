@@ -67,7 +67,8 @@ struct retry_forever_policy {
 template <typename Task, typename Policy>
 struct retry_task
     : detail::retry_task_raw_result_base<Task>,
-      detail::forwarded_task_output_base<Task> {
+      detail::forwarded_task_output_base<Task>,
+      detail::forwarded_task_output_protocol_base<Task> {
     Task task;
     Policy policy;
 

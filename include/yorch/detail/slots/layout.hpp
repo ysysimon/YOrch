@@ -16,15 +16,14 @@ namespace yorch::detail {
 /**
  * @brief Builds the compile-time node -> has-payload table for a plan.
  *
- * Each entry is `true` when the corresponding node's `output_type<I>` is
- * non-void, meaning the node needs payload storage. Slot layouts use this 
- * collected table to skip `void` nodes and to compute physical slot counts and 
- * compact depths.
+ * Each entry is `true` when the corresponding node needs owned physical slot
+ * storage. Nodes whose logical output is statically forwarded from their
+ * direct parent do not contribute storage here.
  */
 template <typename Plan, std::size_t... I>
 [[nodiscard]] consteval auto make_payload_node_array(std::index_sequence<I...>) {
     return std::array<bool, sizeof...(I)> {
-        !std::is_void_v<typename Plan::template output_type<I>>...
+        (Plan::template output_storage_mode_for<I> == output_storage_mode::owned)...
     };
 }
 
@@ -65,8 +64,8 @@ inline constexpr std::size_t payload_node_count_v = [] {
 /**
  * @brief Builds the one-to-one node -> physical slot index table.
  *
- * In this layout, every payload-producing node gets its own distinct physical
- * slot. Nodes with `void` output do not allocate storage and keep the
+ * In this layout, every owned-storage node gets its own distinct physical
+ * slot. Nodes without owned storage keep the
  * `no_physical_slot` sentinel instead.
  */
 template <typename Plan>
@@ -89,7 +88,7 @@ template <typename Plan>
  */
 template <typename Plan>
 struct compact_slot_index_layout {
-    // Node -> physical slot mapping; void-output nodes keep `no_physical_slot`.
+    // Node -> physical slot mapping; non-owned nodes keep `no_physical_slot`.
     std::array<std::size_t, Plan::node_count> physical_slot_indices {};
     // Payload depth along each node's root-to-node path, including the node.
     std::array<std::size_t, Plan::node_count> payload_depths {};
@@ -100,7 +99,7 @@ struct compact_slot_index_layout {
 /**
  * @brief Builds the serial-DFS compact node -> physical slot layout.
  *
- * The serial executor only keeps payloads on the current root-to-node DFS path
+ * The serial executor only keeps owned payload slots on the current root-to-node DFS path
  * live at the same time. Sibling subtrees run one after another, so payload
  * nodes at the same path payload depth can safely reuse the same physical slot.
  *
@@ -385,7 +384,7 @@ template <typename Plan, std::size_t... K>
         Plan::template slot_logical_policy_for<one_to_one_physical_slot_owner_node<Plan, K>()>>...>;
 
 /**
- * @brief Typed backend storage tuple for one-to-one payload slots.
+ * @brief Typed backend storage tuple for one-to-one owned payload slots.
  */
 template <typename Plan>
 using plan_typed_slots_tuple_t =
@@ -393,10 +392,10 @@ using plan_typed_slots_tuple_t =
         std::make_index_sequence<payload_node_count_v<Plan>> {}));
 
 /**
- * @brief True when node `I` has a non-void payload type.
+ * @brief True when node `I` owns physical storage for its output.
  */
 template <typename Plan, std::size_t I>
 concept payload_node =
-    !std::is_void_v<typename Plan::template output_type<I>>;
+    Plan::template output_storage_mode_for<I> == output_storage_mode::owned;
 
 } // namespace yorch::detail

@@ -1,4 +1,5 @@
 #include "yorch/bind.hpp"
+#include "yorch/executor.hpp" // IWYU pragma: keep
 #include "yorch/result.hpp"
 
 #include <gtest/gtest.h>
@@ -138,6 +139,10 @@ concept can_make_task_into_member_from_receiver_first =
             yorch::value(member_worker {}))(
             yorch::value(1));
     };
+
+struct forward_prev_probe {
+    int value = 0;
+};
 
 }  // namespace
 
@@ -347,6 +352,80 @@ TEST(BindTest, BoundOutputTaskResolvesSpecsAndWritesToOutputSink) {
     EXPECT_EQ(slot.get(), "14");
     EXPECT_EQ(ctx.get<int>(), 7);
 }
+
+TEST(BindTest, BoundForwardPrevTaskResolvesDirectParentAndExposesForwardPrevProtocol) {
+    forward_prev_probe parent {7};
+    yorch::exec_context<void, decltype(yorch::prev_slot(parent))> exec {
+        yorch::prev_slot(parent)};
+
+    auto task = yorch::bind_forward_prev<forward_prev_probe>(
+        [](forward_prev_probe& value) noexcept -> yorch::step_result {
+            value.value += 5;
+            return yorch::step_result::success();
+        },
+        yorch::borrow_prev_mut<forward_prev_probe>());
+
+    static_assert(std::is_same_v<
+                  decltype(task.specs),
+                  std::tuple<yorch::borrow_prev_mut_t<forward_prev_probe>>>);
+    static_assert(yorch::detail::task_uses_forward_prev_output_protocol_v<decltype(task)>);
+    static_assert(yorch::detail::task_prev_access_valid_v<decltype(task)>);
+    static_assert(yorch::detail::task_uses_borrow_prev_mut_v<decltype(task)>);
+
+    const auto result = task.invoke_raw(exec);
+
+    EXPECT_TRUE(result.ok());
+    EXPECT_EQ(parent.value, 12);
+}
+
+TEST(BindTest, TaskForwardPrevInfersOutputTypeFromUniquePrevAccessSpec) {
+    auto task = yorch::task_forward_prev(
+        [](forward_prev_probe& value) noexcept -> yorch::step_result {
+            value.value += 1;
+            return yorch::step_result::success();
+        })(
+        yorch::borrow_prev_mut<forward_prev_probe>());
+
+    static_assert(std::is_same_v<
+                  yorch::detail::declared_task_output_t<decltype(task)>,
+                  forward_prev_probe>);
+    static_assert(yorch::detail::task_uses_forward_prev_output_protocol_v<decltype(task)>);
+}
+
+namespace {
+
+using forward_prev_borrow_mut_task_t = decltype(yorch::bind_forward_prev<int>(
+    [](int& value) noexcept -> yorch::step_result {
+        value += 1;
+        return yorch::step_result::success();
+    },
+    yorch::borrow_prev_mut<int>()));
+
+using forward_prev_consume_rvalue_task_t = decltype(yorch::bind_forward_prev<int>(
+    // NOLINTNEXTLINE(cppcoreguidelines-rvalue-reference-param-not-moved)
+    [](int&& value) noexcept -> yorch::step_result {
+        value += 1;
+        return yorch::step_result::success();
+    },
+    yorch::consume_prev<int>()));
+
+static_assert(yorch::detail::task_prev_access_valid_v<forward_prev_borrow_mut_task_t>);
+static_assert(yorch::detail::task_prev_access_valid_v<forward_prev_consume_rvalue_task_t>);
+static_assert(yorch::detail::task_uses_forward_prev_output_protocol_v<forward_prev_borrow_mut_task_t>);
+static_assert(yorch::detail::bind_forward_prev_payload_matches_v<int, decltype([](int&) noexcept -> yorch::step_result {
+    return yorch::step_result::success();
+}), yorch::borrow_prev_mut_t<int>>);
+static_assert(!yorch::detail::bind_forward_prev_bindings_supported_v<int, decltype([](const int&) noexcept -> yorch::step_result {
+    return yorch::step_result::success();
+}), yorch::borrow_prev_t<int>>);
+static_assert(!yorch::detail::bind_forward_prev_bindings_supported_v<int, decltype([](int) noexcept -> yorch::step_result {
+    return yorch::step_result::success();
+}), yorch::copy_prev_t<int>>);
+static_assert(yorch::detail::bind_forward_prev_consume_by_value_requested_v<int, decltype([](int) noexcept -> yorch::step_result {
+    return yorch::step_result::success();
+}), yorch::consume_prev_t<int>>);
+
+}  // namespace
 
 TEST(BindTest, BoundOutputTaskCanConsumeParentPayloadAndForwardItToOutput) {
     std::string parent_value = "root";

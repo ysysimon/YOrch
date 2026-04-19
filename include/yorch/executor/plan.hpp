@@ -43,6 +43,7 @@ template <
              (Plan::node_count > 0) &&
              detail::plan_prev_source_valid_v<Plan> &&
              detail::plan_prev_access_valid_v<Plan> &&
+             detail::plan_forward_prev_source_valid_v<Plan> &&
              detail::plan_fanout_policy_valid_v<Plan>
 [[nodiscard]] constexpr step_result run_plan(Plan& plan) {
     plan_exec_slots<Plan, LayoutPolicy> slots;
@@ -75,6 +76,7 @@ template <
              (Plan::node_count > 0) &&
              detail::plan_prev_source_valid_v<Plan> &&
              detail::plan_prev_access_valid_v<Plan> &&
+             detail::plan_forward_prev_source_valid_v<Plan> &&
              detail::plan_fanout_policy_valid_v<Plan>
 [[nodiscard]] constexpr step_result run_plan(Plan& plan, Ctx& ctx) {
     plan_exec_slots<Plan, LayoutPolicy> slots;

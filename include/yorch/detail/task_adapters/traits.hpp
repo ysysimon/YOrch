@@ -7,39 +7,13 @@
 
 #include "../../context.hpp"
 #include "../../result.hpp"
+#include "../task/traits.hpp" // IWYU pragma: keep
 
 namespace yorch::detail {
 
 template <typename Task, typename Ctx, typename Prev>
 using raw_task_result_t =
     decltype(std::declval<Task>().invoke_raw(std::declval<exec_context<Ctx, Prev>&>()));
-
-template <typename Task, typename = void>
-struct declared_task_output;
-
-template <typename Task>
-struct declared_task_output<
-    Task,
-    std::void_t<typename std::remove_cvref_t<Task>::output_type>
-> {
-    using type = typename std::remove_cvref_t<Task>::output_type;
-};
-
-template <typename Task>
-using declared_task_output_t = typename declared_task_output<Task>::type;
-
-template <typename Task, typename = void>
-struct has_declared_task_output : std::false_type {};
-
-template <typename Task>
-struct has_declared_task_output<
-    Task,
-    std::void_t<declared_task_output_t<Task>>
-> : std::true_type {};
-
-template <typename Task>
-inline constexpr bool has_declared_task_output_v =
-    has_declared_task_output<Task>::value;
 
 /**
  * @brief Reports whether the default `catch_as_failure(task)` adapter can
@@ -167,17 +141,6 @@ struct retry_task_raw_result_base<
     std::void_t<declared_task_raw_result_t<Task>>
 > {
     using raw_result_type = declared_task_raw_result_t<Task>;
-};
-
-template <typename Task, typename = void>
-struct forwarded_task_output_base {};
-
-template <typename Task>
-struct forwarded_task_output_base<
-    Task,
-    std::void_t<declared_task_output_t<Task>>
-> {
-    using output_type = declared_task_output_t<Task>;
 };
 
 /**

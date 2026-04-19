@@ -3,6 +3,7 @@
 #include <type_traits>
 
 #include "../detail/slots/policy.hpp"
+#include "../detail/task/traits.hpp"
 #include "../result.hpp"
 
 namespace yorch::detail {
@@ -125,6 +126,34 @@ template <typename Task>
 using task_output_for_t = typename task_output_for<Task>::type;
 
 template <typename Task, typename = void>
+struct task_output_storage_mode {
+private:
+    using raw_t = task_raw_result_t<Task>;
+
+public:
+    static constexpr detail::output_storage_mode value =
+        std::is_void_v<raw_t> ||
+                std::is_same_v<raw_t, step_result>
+            ? detail::output_storage_mode::none
+            : detail::output_storage_mode::owned;
+};
+
+template <typename Task>
+struct task_output_storage_mode<
+    Task,
+    std::void_t<typename plan_declared_task_output<Task>::type>
+> {
+    static constexpr detail::output_storage_mode value =
+        task_uses_forward_prev_output_protocol_v<Task>
+            ? detail::output_storage_mode::forwarded_prev
+            : detail::output_storage_mode::owned;
+};
+
+template <typename Task>
+inline constexpr detail::output_storage_mode task_output_storage_mode_v =
+    task_output_storage_mode<Task>::value;
+
+template <typename Task, typename = void>
 struct task_slot_logical_policy {
 private:
     using raw_t = task_raw_result_t<Task>;
@@ -154,7 +183,10 @@ struct task_slot_logical_policy<
     Task,
     std::void_t<typename plan_declared_task_output<Task>::type>
 > {
-    static constexpr slot_logical_policy value = slot_logical_policy::maybe_payload;
+    static constexpr slot_logical_policy value =
+        task_uses_forward_prev_output_protocol_v<Task>
+            ? slot_logical_policy::none
+            : slot_logical_policy::maybe_payload;
 };
 
 template <typename Task>

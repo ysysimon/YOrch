@@ -11,6 +11,7 @@
 #include "../resolve.hpp"
 #include "../slots.hpp"
 #include "../task_adapters.hpp"
+#include "../detail/executor/prev_access_specs.hpp"
 #include "../detail/bind/member_receiver.hpp"
 #include "../detail/bind/traits.hpp"
 
@@ -38,6 +39,84 @@ constexpr auto apply_catch_adapter(Task&& task, PolicyLike&& policy_like) {
         return catch_as_failure(std::forward<Task>(task), std::forward<PolicyLike>(policy_like));
     }
 }
+
+template <typename... Specs>
+inline constexpr std::size_t forward_prev_prev_access_count_v =
+    (0U + ... + (is_prev_access_spec_v<std::remove_cvref_t<Specs>> ? 1U : 0U));
+
+template <typename... Specs>
+struct forward_prev_unique_prev_payload {
+    using type = void;
+};
+
+template <typename Spec, typename... Rest>
+struct forward_prev_unique_prev_payload<Spec, Rest...> {
+private:
+    using spec_t = std::remove_cvref_t<Spec>;
+    using rest_t = typename forward_prev_unique_prev_payload<Rest...>::type;
+
+public:
+    using type = std::conditional_t<
+        is_prev_access_spec_v<spec_t>,
+        std::conditional_t<
+            std::is_void_v<rest_t>,
+            typename normalized_prev_access_spec_traits<spec_t>::payload_type,
+            void>,
+        rest_t>;
+};
+
+template <typename... Specs>
+using forward_prev_unique_prev_payload_t =
+    typename forward_prev_unique_prev_payload<Specs...>::type;
+
+template <typename T, typename Arg, typename Spec>
+inline constexpr bool forward_prev_spec_matches_binding_v =
+    (is_borrow_prev_mut_spec_v<Spec> &&
+     std::is_same_v<typename normalized_prev_access_spec_traits<Spec>::payload_type, T> &&
+     std::is_same_v<Arg, T&>) ||
+    (is_consume_prev_spec_v<Spec> &&
+     std::is_same_v<typename normalized_prev_access_spec_traits<Spec>::payload_type, T> &&
+     std::is_same_v<Arg, T&&>);
+
+template <typename T, typename Arg, typename Spec>
+inline constexpr bool forward_prev_consume_bound_to_value_v =
+    is_consume_prev_spec_v<Spec> &&
+    std::is_same_v<typename normalized_prev_access_spec_traits<Spec>::payload_type, T> &&
+    std::is_same_v<Arg, T>;
+
+template <typename T, typename F, typename... Specs, std::size_t... I>
+[[nodiscard]] consteval bool forward_prev_bindings_supported_impl(std::index_sequence<I...>) {
+    return (((!is_prev_access_spec_v<std::remove_cvref_t<Specs>>) ||
+             forward_prev_spec_matches_binding_v<
+                 T,
+                 nth_arg_t<I, std::remove_cvref_t<F>>,
+                 std::remove_cvref_t<Specs>>) &&
+            ...);
+}
+
+template <typename T, typename F, typename... Specs, std::size_t... I>
+[[nodiscard]] consteval bool forward_prev_consume_by_value_requested_impl(std::index_sequence<I...>) {
+    return ((is_prev_access_spec_v<std::remove_cvref_t<Specs>> &&
+             forward_prev_consume_bound_to_value_v<
+                 T,
+                 nth_arg_t<I, std::remove_cvref_t<F>>,
+                 std::remove_cvref_t<Specs>>) ||
+            ...);
+}
+
+template <typename T, typename F, typename... Specs>
+inline constexpr bool bind_forward_prev_payload_matches_v =
+    std::is_same_v<T, forward_prev_unique_prev_payload_t<Specs...>>;
+
+template <typename T, typename F, typename... Specs>
+inline constexpr bool bind_forward_prev_bindings_supported_v =
+    forward_prev_bindings_supported_impl<T, F, Specs...>(
+        std::index_sequence_for<Specs...> {});
+
+template <typename T, typename F, typename... Specs>
+inline constexpr bool bind_forward_prev_consume_by_value_requested_v =
+    forward_prev_consume_by_value_requested_impl<T, F, Specs...>(
+        std::index_sequence_for<Specs...> {});
 
 } // namespace yorch::detail
 
@@ -105,6 +184,7 @@ template <typename F, typename T, typename... Specs>
 struct bound_output_task {
     using raw_result_type = step_result;
     using output_type = T;
+    using output_protocol = detail::direct_output_protocol_tag;
 
     F func;
     std::tuple<Specs...> specs;
@@ -139,6 +219,45 @@ private:
             func,
             resolve_as<detail::nth_arg_t<I, F>>(std::get<I>(specs), ec)...,
             out);
+    }
+};
+
+template <typename F, typename T, typename... Specs>
+struct bound_forward_prev_task {
+    using raw_result_type = step_result;
+    using output_type = T;
+    using output_protocol = detail::forward_prev_output_protocol_tag;
+
+    F func;
+    std::tuple<Specs...> specs;
+
+    template <typename Ctx, typename Prev>
+    constexpr step_result invoke_raw(exec_context<Ctx, Prev>& ec)
+        noexcept(noexcept(call_impl_raw(ec, std::index_sequence_for<Specs...> {}))) {
+        using call_result_t =
+            decltype(call_impl_raw(ec, std::index_sequence_for<Specs...> {}));
+
+        if constexpr (std::is_void_v<call_result_t>) {
+            call_impl_raw(ec, std::index_sequence_for<Specs...> {});
+            return step_result::success();
+        } else {
+            static_assert(std::is_same_v<std::remove_cvref_t<call_result_t>, step_result>,
+                          "bind_forward_prev(...) callable must return void or yorch::step_result");
+            return call_impl_raw(ec, std::index_sequence_for<Specs...> {});
+        }
+    }
+
+private:
+    template <typename Ctx, typename Prev, std::size_t... I>
+    constexpr decltype(auto) call_impl_raw(
+        exec_context<Ctx, Prev>& ec,
+        std::index_sequence<I...>)
+        noexcept(noexcept(std::invoke(
+            func,
+            resolve_as<detail::nth_arg_t<I, F>>(std::get<I>(specs), ec)...))) {
+        return std::invoke(
+            func,
+            resolve_as<detail::nth_arg_t<I, F>>(std::get<I>(specs), ec)...);
     }
 };
 
@@ -201,6 +320,7 @@ template <typename F, typename ReceiverSpec, typename T, typename... Specs>
 struct bound_member_output_task {
     using raw_result_type = step_result;
     using output_type = T;
+    using output_protocol = detail::direct_output_protocol_tag;
 
     F func;
     ReceiverSpec receiver_spec;
@@ -315,6 +435,48 @@ constexpr auto bind_into(F&& f, Specs&&... specs) {
         "bind_into(...) callable must take yorch::direct_out<T> as its last parameter");
 
     return bound_output_task<
+        std::decay_t<F>,
+        T,
+        std::decay_t<Specs>...
+    >{
+        std::forward<F>(f),
+        std::tuple<std::decay_t<Specs>...> {std::forward<Specs>(specs)...}
+    };
+}
+
+template <typename T, typename F, typename... Specs>
+constexpr auto bind_forward_prev(F&& f, Specs&&... specs) {
+    using fn_t = std::remove_cvref_t<F>;
+    using result_t = detail::result_t<fn_t>;
+
+    static_assert(!std::is_reference_v<T> && !std::is_void_v<T>,
+                  "bind_forward_prev<T>(...) requires a non-void owned payload type T");
+    static_assert(
+        !detail::member_bind_callable<fn_t>,
+        "bind_forward_prev<T>(...) does not support member function pointers in v1");
+    static_assert(
+        !detail::inferable_direct_output_callable<fn_t>,
+        "bind_forward_prev<T>(...) does not accept callables with yorch::direct_out<T>; use bind_into(...) for direct-output materialization");
+    static_assert(
+        sizeof...(Specs) == detail::function_traits<fn_t>::arity,
+        "bind_forward_prev<T>(...) requires exactly one spec per function parameter");
+    static_assert(
+        std::is_void_v<result_t> || std::is_same_v<result_t, step_result>,
+        "bind_forward_prev<T>(...) callable must return void or yorch::step_result");
+    static_assert(
+        detail::forward_prev_prev_access_count_v<std::decay_t<Specs>...> == 1,
+        "bind_forward_prev<T>(...) requires exactly one prev-access binding");
+    static_assert(
+        detail::bind_forward_prev_payload_matches_v<T, fn_t, std::decay_t<Specs>...>,
+        "bind_forward_prev<T>(...) requires the forwarded prev payload type to match T exactly");
+    static_assert(
+        !detail::bind_forward_prev_consume_by_value_requested_v<T, fn_t, std::decay_t<Specs>...>,
+        "bind_forward_prev<T>(...) does not support consume_prev<T>() bound to T; use T&& if you want to forward the direct parent object identity");
+    static_assert(
+        detail::bind_forward_prev_bindings_supported_v<T, fn_t, std::decay_t<Specs>...>,
+        "bind_forward_prev<T>(...) only supports borrow_prev_mut<T>() -> T& or consume_prev<T>() -> T&&");
+
+    return bound_forward_prev_task<
         std::decay_t<F>,
         T,
         std::decay_t<Specs>...

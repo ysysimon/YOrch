@@ -32,6 +32,22 @@ struct member_prev_worker {
     }
 };
 
+struct forwarded_payload {
+    int value = 0;
+};
+
+struct move_only_forwarded_payload {
+    explicit move_only_forwarded_payload(int initial) : value(initial) {}
+
+    move_only_forwarded_payload(const move_only_forwarded_payload&) = delete;
+    move_only_forwarded_payload& operator=(const move_only_forwarded_payload&) = delete;
+    move_only_forwarded_payload(move_only_forwarded_payload&&) noexcept = default;
+    move_only_forwarded_payload& operator=(move_only_forwarded_payload&&) noexcept = default;
+    ~move_only_forwarded_payload() = default;
+
+    int value = 0;
+};
+
 using borrow_prev_task_t = decltype(yorch::bind(
     [](const int&) noexcept -> yorch::step_result {
         return yorch::step_result::success();
@@ -148,6 +164,122 @@ static_assert(yorch::detail::task_uses_copy_prev_v<retry_copy_prev_task_t>);
 static_assert(!yorch::detail::task_prev_access_valid_v<retry_consume_prev_task_t>);
 
 }  // namespace
+
+TEST(ExecutorTest, ForwardPrevPlanValidationRejectsRootAndVoidParentSources) {
+    auto invalid_root_tree = yorch::task_tree.root(yorch::bind_forward_prev<int>(
+        [](int&) noexcept -> yorch::step_result {
+            return yorch::step_result::success();
+        },
+        yorch::borrow_prev_mut<int>()));
+    auto invalid_root_plan = yorch::compile_plan(invalid_root_tree);
+
+    auto invalid_void_parent_tree = yorch::task_tree.root(yorch::bind([]() noexcept -> yorch::step_result {
+            return yorch::step_result::success();
+        }))
+        .node<1>(yorch::bind_forward_prev<int>(
+            [](int&) noexcept -> yorch::step_result {
+                return yorch::step_result::success();
+            },
+            yorch::borrow_prev_mut<int>()));
+    auto invalid_void_parent_plan = yorch::compile_plan(invalid_void_parent_tree);
+
+    static_assert(!yorch::detail::plan_forward_prev_source_valid_v<decltype(invalid_root_plan)>);
+    static_assert(!yorch::detail::plan_forward_prev_source_valid_v<decltype(invalid_void_parent_plan)>);
+    SUCCEED();
+}
+
+TEST(ExecutorTest, RunPlanSupportsStaticForwardPrevChainWithoutAllocatingExtraSlots) {
+    const forwarded_payload* first_seen = nullptr;
+    const forwarded_payload* second_seen = nullptr;
+    const forwarded_payload* child_seen = nullptr;
+    int child_value = 0;
+
+    auto tree = yorch::task_tree.root(yorch::bind([]() noexcept -> forwarded_payload {
+            return forwarded_payload {10};
+        }))
+        .node<1>(yorch::bind_forward_prev<forwarded_payload>(
+            [&](forwarded_payload& value) noexcept -> yorch::step_result {
+                first_seen = &value;
+                value.value += 2;
+                return yorch::step_result::success();
+            },
+            yorch::borrow_prev_mut<forwarded_payload>()))
+            .node<2>(yorch::bind_forward_prev<forwarded_payload>(
+                [&](forwarded_payload& value) noexcept -> yorch::step_result {
+                    second_seen = &value;
+                    value.value += 3;
+                    return yorch::step_result::success();
+                },
+                yorch::borrow_prev_mut<forwarded_payload>()))
+                .node<3>(yorch::bind(
+                    [&](const forwarded_payload& value) noexcept -> yorch::step_result {
+                        child_seen = &value;
+                        child_value = value.value;
+                        return yorch::step_result::success();
+                    },
+                    yorch::borrow_prev<forwarded_payload>()));
+
+    auto plan = yorch::compile_plan(tree);
+    using plan_t = decltype(plan);
+
+    static_assert(plan_t::template output_storage_mode_for<0> == yorch::detail::output_storage_mode::owned);
+    static_assert(plan_t::template output_storage_mode_for<1> == yorch::detail::output_storage_mode::forwarded_prev);
+    static_assert(plan_t::template output_storage_mode_for<2> == yorch::detail::output_storage_mode::forwarded_prev);
+    static_assert(yorch::plan_exec_slots<plan_t>::physical_slot_count == 1);
+    static_assert(yorch::plan_exec_slots<plan_t, yorch::slot_layout_serial_dfs_compact_policy>::physical_slot_count == 1);
+
+    const auto default_result = yorch::run_plan(plan);
+
+    EXPECT_TRUE(default_result.ok());
+    ASSERT_NE(first_seen, nullptr);
+    ASSERT_NE(second_seen, nullptr);
+    ASSERT_NE(child_seen, nullptr);
+    EXPECT_EQ(first_seen, second_seen);
+    EXPECT_EQ(first_seen, child_seen);
+    EXPECT_EQ(child_value, 15);
+}
+
+TEST(ExecutorTest, RunPlanSupportsStaticForwardPrevFromConsumePrevRvalueReference) {
+    const move_only_forwarded_payload* seen_forward = nullptr;
+    const move_only_forwarded_payload* seen_child = nullptr;
+    int child_value = 0;
+
+    auto tree = yorch::task_tree.root(yorch::bind([]() noexcept -> move_only_forwarded_payload {
+            return move_only_forwarded_payload {17};
+        }))
+        .node<1>(yorch::bind_forward_prev<move_only_forwarded_payload>(
+            // NOLINTNEXTLINE(cppcoreguidelines-rvalue-reference-param-not-moved)
+            [&](move_only_forwarded_payload&& value) noexcept -> yorch::step_result {
+                seen_forward = &value;
+                value.value += 4;
+                return yorch::step_result::success();
+            },
+            yorch::consume_prev<move_only_forwarded_payload>()))
+            .node<2>(yorch::bind(
+                [&](const move_only_forwarded_payload& value) noexcept -> yorch::step_result {
+                    seen_child = &value;
+                    child_value = value.value;
+                    return yorch::step_result::success();
+                },
+                yorch::borrow_prev<move_only_forwarded_payload>()));
+
+    auto plan = yorch::compile_plan(tree);
+    using plan_t = decltype(plan);
+
+    static_assert(yorch::plan_exec_slots<plan_t>::physical_slot_count == 1);
+    static_assert(yorch::plan_exec_slots<plan_t, yorch::slot_layout_serial_dfs_compact_policy>::physical_slot_count == 1);
+
+    const auto default_result = yorch::run_plan(plan);
+    const auto compact_result =
+        yorch::run_plan<yorch::slot_layout_serial_dfs_compact_policy>(plan);
+
+    EXPECT_TRUE(default_result.ok());
+    EXPECT_TRUE(compact_result.ok());
+    ASSERT_NE(seen_forward, nullptr);
+    ASSERT_NE(seen_child, nullptr);
+    EXPECT_EQ(seen_forward, seen_child);
+    EXPECT_EQ(child_value, 21);
+}
 
 TEST(ExecutorTest, RunPlanSupportsExclusiveMutablePrevBorrowForSingleChild) {
     int seen_mutated = 0;

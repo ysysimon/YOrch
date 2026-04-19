@@ -17,6 +17,36 @@ namespace yorch {
 
 namespace detail {
 
+template <typename Plan, std::size_t I, bool HasLogicalOutput =
+    !std::is_void_v<typename Plan::template output_type<I>>>
+struct canonical_output_owner_node_impl {
+    static constexpr std::size_t value = Plan::no_parent;
+};
+
+template <typename Plan, std::size_t I>
+struct canonical_output_owner_node_impl<Plan, I, true> {
+private:
+    static constexpr auto storage_mode = Plan::template output_storage_mode_for<I>;
+
+public:
+    static constexpr std::size_t value = [] {
+        if constexpr (storage_mode == detail::output_storage_mode::forwarded_prev) {
+            constexpr auto parent = Plan::template parent_index<I>;
+            static_assert(parent != Plan::no_parent,
+                          "forward-prev nodes are not allowed at the root");
+            static_assert(!std::is_void_v<typename Plan::template output_type<parent>>,
+                          "forward-prev nodes require a direct parent carrying a non-void payload");
+            return canonical_output_owner_node_impl<Plan, parent>::value;
+        } else {
+            return I;
+        }
+    }();
+};
+
+template <typename Plan, std::size_t I>
+inline constexpr std::size_t canonical_output_owner_node_v =
+    canonical_output_owner_node_impl<Plan, I>::value;
+
 /**
  * @brief Implementation backend for layout-driven erased plan payload storage.
  *
@@ -46,6 +76,10 @@ struct plan_exec_slots_impl {
 
     template <std::size_t I>
     using output_type = typename Plan::template output_type<I>;
+
+    template <std::size_t I>
+    static constexpr detail::output_storage_mode output_storage_mode =
+        Plan::template output_storage_mode_for<I>;
 
     template <std::size_t I>
     static constexpr std::size_t slot_index = Plan::template slot_index<I>;
@@ -92,13 +126,7 @@ struct plan_exec_slots_impl {
         requires (!std::is_void_v<output_type<I>>) &&
                  (slot_logical_policy<I> != detail::slot_logical_policy::must_payload)
     [[nodiscard]] constexpr bool has_value() const noexcept {
-        if constexpr (slot_physical_policy<physical_slot_index<I>> == detail::slot_physical_policy::maybe_payload) {
-            const auto& slot = physical_slot<I>();
-            const auto* engaged = slot.engaged_ptr();
-            return engaged != nullptr && *engaged;
-        } else {
-            return true;
-        }
+        return slot_has_value_impl<I>();
     }
 
     /**
@@ -127,19 +155,27 @@ struct plan_exec_slots_impl {
      * @brief Returns node `I`'s stored payload.
      */
     template <std::size_t I>
-        requires detail::payload_node<Plan, I>
+        requires (!std::is_void_v<output_type<I>>)
     [[nodiscard]] constexpr auto get() & noexcept -> output_type<I>& {
-        auto slot = slot_view_for<I>();
-        return slot.get();
+        if constexpr (detail::canonical_output_owner_node_v<Plan, I> != I) {
+            return get<detail::canonical_output_owner_node_v<Plan, I>>();
+        } else {
+            auto slot = slot_view_for<I>();
+            return slot.get();
+        }
     }
 
     /**
      * @brief Returns node `I`'s stored payload from a const slots object.
      */
     template <std::size_t I>
-        requires detail::payload_node<Plan, I>
+        requires (!std::is_void_v<output_type<I>>)
     [[nodiscard]] constexpr auto get() const& noexcept -> const output_type<I>& {
-        return *slot_ptr<I>();
+        if constexpr (detail::canonical_output_owner_node_v<Plan, I> != I) {
+            return get<detail::canonical_output_owner_node_v<Plan, I>>();
+        } else {
+            return *slot_ptr<I>();
+        }
     }
 
     /**
@@ -147,7 +183,8 @@ struct plan_exec_slots_impl {
      */
     template <std::size_t I>
     constexpr void destroy() noexcept {
-        if constexpr (!std::is_void_v<output_type<I>>) {
+        if constexpr (!std::is_void_v<output_type<I>> &&
+                      output_storage_mode<I> == detail::output_storage_mode::owned) {
             auto slot = slot_view_for<I>();
             slot.destroy();
         }
@@ -213,6 +250,21 @@ private:
         return std::launder(reinterpret_cast<const output_type<I>*>(physical_slot<I>().raw_storage()));
     }
 
+    template <std::size_t I>
+    [[nodiscard]] constexpr bool slot_has_value_impl() const noexcept {
+        if constexpr (std::is_void_v<output_type<I>>) {
+            return false;
+        } else if constexpr (detail::canonical_output_owner_node_v<Plan, I> != I) {
+            return slot_has_value_impl<detail::canonical_output_owner_node_v<Plan, I>>();
+        } else if constexpr (slot_physical_policy<physical_slot_index<I>> == detail::slot_physical_policy::maybe_payload) {
+            const auto& slot = physical_slot<I>();
+            const auto* engaged = slot.engaged_ptr();
+            return engaged != nullptr && *engaged;
+        } else {
+            return true;
+        }
+    }
+
     template <std::size_t I = 0>
     constexpr void destroy_active_slots() noexcept {
         if constexpr (I < Plan::node_count) {
@@ -254,6 +306,10 @@ struct plan_exec_slots_impl<Plan, slot_layout_one_to_one_policy> {
 
     template <std::size_t I>
     using output_type = typename Plan::template output_type<I>;
+
+    template <std::size_t I>
+    static constexpr detail::output_storage_mode output_storage_mode =
+        Plan::template output_storage_mode_for<I>;
 
     template <std::size_t I>
     static constexpr std::size_t slot_index = Plan::template slot_index<I>;
@@ -300,7 +356,7 @@ struct plan_exec_slots_impl<Plan, slot_layout_one_to_one_policy> {
         requires (!std::is_void_v<output_type<I>>) &&
                  (slot_logical_policy<I> != detail::slot_logical_policy::must_payload)
     [[nodiscard]] constexpr bool has_value() const noexcept {
-        return logical_slot<I>().has_value();
+        return slot_has_value_impl<I>();
     }
 
     /**
@@ -330,18 +386,26 @@ struct plan_exec_slots_impl<Plan, slot_layout_one_to_one_policy> {
      * @brief Returns node `I`'s stored payload.
      */
     template <std::size_t I>
-        requires detail::payload_node<Plan, I>
+        requires (!std::is_void_v<output_type<I>>)
     [[nodiscard]] constexpr auto get() & noexcept -> output_type<I>& {
-        return logical_slot<I>().get();
+        if constexpr (detail::canonical_output_owner_node_v<Plan, I> != I) {
+            return get<detail::canonical_output_owner_node_v<Plan, I>>();
+        } else {
+            return logical_slot<I>().get();
+        }
     }
 
     /**
      * @brief Returns node `I`'s stored payload from a const slots object.
      */
     template <std::size_t I>
-        requires detail::payload_node<Plan, I>
+        requires (!std::is_void_v<output_type<I>>)
     [[nodiscard]] constexpr auto get() const& noexcept -> const output_type<I>& {
-        return logical_slot<I>().get();
+        if constexpr (detail::canonical_output_owner_node_v<Plan, I> != I) {
+            return get<detail::canonical_output_owner_node_v<Plan, I>>();
+        } else {
+            return logical_slot<I>().get();
+        }
     }
 
     /**
@@ -349,7 +413,8 @@ struct plan_exec_slots_impl<Plan, slot_layout_one_to_one_policy> {
      */
     template <std::size_t I>
     constexpr void destroy() noexcept {
-        if constexpr (!std::is_void_v<output_type<I>>) {
+        if constexpr (!std::is_void_v<output_type<I>> &&
+                      output_storage_mode<I> == detail::output_storage_mode::owned) {
             if constexpr (slot_logical_policy<I> == detail::slot_logical_policy::maybe_payload) {
                 if (logical_slot<I>().has_value()) {
                     logical_slot<I>().destroy();
@@ -403,6 +468,19 @@ private:
     template <std::size_t I>
     [[nodiscard]] constexpr auto logical_slot() const& noexcept -> const logical_slot_type<I>& {
         return std::get<physical_slot_index<I>>(storage);
+    }
+
+    template <std::size_t I>
+    [[nodiscard]] constexpr bool slot_has_value_impl() const noexcept {
+        if constexpr (std::is_void_v<output_type<I>>) {
+            return false;
+        } else if constexpr (detail::canonical_output_owner_node_v<Plan, I> != I) {
+            return slot_has_value_impl<detail::canonical_output_owner_node_v<Plan, I>>();
+        } else if constexpr (slot_logical_policy<I> == detail::slot_logical_policy::maybe_payload) {
+            return logical_slot<I>().has_value();
+        } else {
+            return true;
+        }
     }
 
     template <std::size_t I = 0>
