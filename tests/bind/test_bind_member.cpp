@@ -87,7 +87,7 @@ static_assert(yorch::detail::validate_bind_forward_prev_member<
                   int,
                   decltype(&member_worker::mutate_state),
                   yorch::value_t<std::reference_wrapper<member_worker>>,
-                  yorch::consume_prev_t<int>>() == yorch::detail::bind_forward_prev_member_error::consume_by_value_not_supported);
+                  yorch::consume_prev_t<int>>() == yorch::detail::bind_forward_prev_member_error::binding_mode_not_supported);
 static_assert(yorch::detail::validate_bind_forward_prev_member<
                   member_worker,
                   decltype(&member_worker::mutate_state),
@@ -328,26 +328,6 @@ TEST(BindTest, BoundMemberForwardPrevTaskCanForwardReceiverFromBorrowPrevMut) {
     EXPECT_EQ(worker.state, 13);
 }
 
-TEST(BindTest, BoundMemberForwardPrevTaskCanForwardReceiverFromConsumePrev) {
-    move_only_member_worker worker {7};
-
-    yorch::exec_context<void, decltype(yorch::prev_slot(worker))> exec {
-        yorch::prev_slot(worker)};
-
-    auto task = yorch::bind_forward_prev_member<move_only_member_worker>(
-        &move_only_member_worker::adjust,
-        yorch::consume_prev<move_only_member_worker>(),
-        yorch::value(5));
-
-    static_assert(yorch::detail::task_uses_forward_prev_output_protocol_v<decltype(task)>);
-    static_assert(yorch::detail::task_prev_access_valid_v<decltype(task)>);
-    static_assert(yorch::detail::task_uses_consume_prev_v<decltype(task)>);
-
-    const auto result = task.invoke_raw(exec);
-
-    EXPECT_TRUE(result.ok());
-}
-
 TEST(BindTest, BoundMemberForwardPrevTaskCanForwardMutableParameterFromContextReceiver) {
     struct service {
         int* seen = nullptr;
@@ -383,37 +363,4 @@ TEST(BindTest, BoundMemberForwardPrevTaskCanForwardMutableParameterFromContextRe
     EXPECT_EQ(probe.value, 9);
     ASSERT_NE(ctx.get<service>().seen, nullptr);
     EXPECT_EQ(ctx.get<service>().seen, &probe.value);
-}
-
-TEST(BindTest, BoundMemberForwardPrevTaskCanForwardRvalueParameterFromStoredReceiver) {
-    struct consumer_service {
-        int seen = 0;
-
-        // NOLINTNEXTLINE(cppcoreguidelines-rvalue-reference-param-not-moved)
-        yorch::step_result consume(forward_prev_probe&& probe) noexcept {
-            seen = probe.value;
-            probe.value += 4;
-            return yorch::step_result::success();
-        }
-    };
-
-    consumer_service svc;
-    forward_prev_probe probe {8};
-
-    yorch::exec_context<void, decltype(yorch::prev_slot(probe))> exec {
-        yorch::prev_slot(probe)};
-
-    auto task = yorch::bind_forward_prev_member<forward_prev_probe>(
-        &consumer_service::consume,
-        yorch::value(std::ref(svc)),
-        yorch::consume_prev<forward_prev_probe>());
-
-    static_assert(yorch::detail::task_uses_forward_prev_output_protocol_v<decltype(task)>);
-    static_assert(yorch::detail::task_prev_access_valid_v<decltype(task)>);
-    static_assert(yorch::detail::task_uses_consume_prev_v<decltype(task)>);
-
-    const auto result = task.invoke_raw(exec);
-
-    EXPECT_TRUE(result.ok());
-    EXPECT_EQ(svc.seen, 8);
 }

@@ -2,7 +2,7 @@
 
 namespace {
 
-struct worker {
+struct service {
     yorch::step_result consume(int) noexcept {
         return yorch::step_result::success();
     }
@@ -11,9 +11,9 @@ struct worker {
 } // namespace
 
 int main() {
-    worker value;
+    service value;
     auto task = yorch::bind_forward_prev_member<int>(
-        &worker::consume,
+        &service::consume,
         yorch::value(std::ref(value)),
         yorch::consume_prev<int>());
 

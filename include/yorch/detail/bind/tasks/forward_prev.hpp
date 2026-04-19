@@ -5,7 +5,6 @@
 #include <type_traits>
 #include <utility>
 
-#include "../../../task_adapters.hpp"
 #include "../../executor/prev_access_specs.hpp"
 #include "../traits.hpp"
 #include "common.hpp"
@@ -26,7 +25,6 @@ enum class bind_forward_prev_error {
     invalid_result_type,
     prev_access_count_invalid,
     payload_type_mismatch,
-    consume_by_value_not_supported,
     binding_mode_not_supported,
 };
 
@@ -39,7 +37,6 @@ enum class bind_forward_prev_member_error {
     invalid_result_type,
     prev_access_count_invalid,
     payload_type_mismatch,
-    consume_by_value_not_supported,
     binding_mode_not_supported,
 };
 
@@ -72,16 +69,7 @@ template <typename T, typename Arg, typename Spec>
 inline constexpr bool forward_prev_spec_matches_binding_v =
     (is_borrow_prev_mut_spec_v<Spec> &&
      std::is_same_v<typename normalized_prev_access_spec_traits<Spec>::payload_type, T> &&
-     std::is_same_v<Arg, T&>) ||
-    (is_consume_prev_spec_v<Spec> &&
-     std::is_same_v<typename normalized_prev_access_spec_traits<Spec>::payload_type, T> &&
-     std::is_same_v<Arg, T&&>);
-
-template <typename T, typename Arg, typename Spec>
-inline constexpr bool forward_prev_consume_bound_to_value_v =
-    is_consume_prev_spec_v<Spec> &&
-    std::is_same_v<typename normalized_prev_access_spec_traits<Spec>::payload_type, T> &&
-    std::is_same_v<Arg, T>;
+     std::is_same_v<Arg, T&>);
 
 template <typename T, typename F, typename... Specs, std::size_t... I>
 [[nodiscard]] consteval bool forward_prev_bindings_supported_impl(std::index_sequence<I...>) {
@@ -90,16 +78,6 @@ template <typename T, typename F, typename... Specs, std::size_t... I>
                  T,
                  nth_arg_t<I, std::remove_cvref_t<F>>,
                  std::remove_cvref_t<Specs>>) &&
-            ...);
-}
-
-template <typename T, typename F, typename... Specs, std::size_t... I>
-[[nodiscard]] consteval bool forward_prev_consume_by_value_requested_impl(std::index_sequence<I...>) {
-    return ((is_prev_access_spec_v<std::remove_cvref_t<Specs>> &&
-             forward_prev_consume_bound_to_value_v<
-                 T,
-                 nth_arg_t<I, std::remove_cvref_t<F>>,
-                 std::remove_cvref_t<Specs>>) ||
             ...);
 }
 
@@ -112,16 +90,10 @@ inline constexpr bool bind_forward_prev_bindings_supported_v =
     forward_prev_bindings_supported_impl<T, F, Specs...>(
         std::index_sequence_for<Specs...> {});
 
-template <typename T, typename F, typename... Specs>
-inline constexpr bool bind_forward_prev_consume_by_value_requested_v =
-    forward_prev_consume_by_value_requested_impl<T, F, Specs...>(
-        std::index_sequence_for<Specs...> {});
-
 template <typename T, typename F, typename ReceiverSpec>
 inline constexpr bool forward_prev_member_receiver_binding_supported_v =
     (!is_prev_access_spec_v<std::remove_cvref_t<ReceiverSpec>>) ||
-    ((is_borrow_prev_mut_spec_v<std::remove_cvref_t<ReceiverSpec>> ||
-      is_consume_prev_spec_v<std::remove_cvref_t<ReceiverSpec>>) &&
+    (is_borrow_prev_mut_spec_v<std::remove_cvref_t<ReceiverSpec>> &&
      std::is_same_v<
          typename normalized_prev_access_spec_traits<std::remove_cvref_t<ReceiverSpec>>::payload_type,
          T> &&
@@ -138,16 +110,6 @@ template <typename T, typename F, typename ReceiverSpec, typename... Specs, std:
             ...);
 }
 
-template <typename T, typename F, typename... Specs, std::size_t... I>
-[[nodiscard]] consteval bool forward_prev_member_consume_by_value_requested_impl(std::index_sequence<I...>) {
-    return ((is_prev_access_spec_v<std::remove_cvref_t<Specs>> &&
-             forward_prev_consume_bound_to_value_v<
-                 T,
-                 member_nth_arg_t<I, std::remove_cvref_t<F>>,
-                 std::remove_cvref_t<Specs>>) ||
-            ...);
-}
-
 template <typename T, typename F, typename ReceiverSpec, typename... Specs>
 inline constexpr bool bind_forward_prev_member_payload_matches_v =
     std::is_same_v<T, forward_prev_unique_prev_payload_t<ReceiverSpec, Specs...>>;
@@ -155,11 +117,6 @@ inline constexpr bool bind_forward_prev_member_payload_matches_v =
 template <typename T, typename F, typename ReceiverSpec, typename... Specs>
 inline constexpr bool bind_forward_prev_member_bindings_supported_v =
     forward_prev_member_bindings_supported_impl<T, F, ReceiverSpec, Specs...>(
-        std::index_sequence_for<Specs...> {});
-
-template <typename T, typename F, typename ReceiverSpec, typename... Specs>
-inline constexpr bool bind_forward_prev_member_consume_by_value_requested_v =
-    forward_prev_member_consume_by_value_requested_impl<T, F, Specs...>(
         std::index_sequence_for<Specs...> {});
 
 template <typename T, typename F, typename... Specs>
@@ -183,8 +140,6 @@ template <typename T, typename F, typename... Specs>
         return bind_forward_prev_error::prev_access_count_invalid;
     } else if constexpr (!bind_forward_prev_payload_matches_v<T, fn_t, std::decay_t<Specs>...>) {
         return bind_forward_prev_error::payload_type_mismatch;
-    } else if constexpr (bind_forward_prev_consume_by_value_requested_v<T, fn_t, std::decay_t<Specs>...>) {
-        return bind_forward_prev_error::consume_by_value_not_supported;
     } else if constexpr (!bind_forward_prev_bindings_supported_v<T, fn_t, std::decay_t<Specs>...>) {
         return bind_forward_prev_error::binding_mode_not_supported;
     } else {
@@ -226,12 +181,9 @@ consteval void emit_bind_forward_prev_diagnostic() {
     } else if constexpr (error == bind_forward_prev_error::payload_type_mismatch) {
         static_assert(bind_tasks_always_false_v<diagnostic_t>,
                       "bind_forward_prev<T>(...) requires the forwarded prev payload type to match T exactly");
-    } else if constexpr (error == bind_forward_prev_error::consume_by_value_not_supported) {
-        static_assert(bind_tasks_always_false_v<diagnostic_t>,
-                      "bind_forward_prev<T>(...) does not support consume_prev<T>() bound to T; use T&& if you want to forward the direct parent object identity");
     } else {
         static_assert(bind_tasks_always_false_v<diagnostic_t>,
-                      "bind_forward_prev<T>(...) only supports borrow_prev_mut<T>() -> T& or consume_prev<T>() -> T&&");
+                      "bind_forward_prev<T>(...) only supports borrow_prev_mut<T>() -> T&");
     }
 }
 
@@ -258,12 +210,6 @@ template <typename T, typename F, typename ReceiverSpec, typename... Specs>
                              std::decay_t<ReceiverSpec>,
                              std::decay_t<Specs>...>) {
         return bind_forward_prev_member_error::payload_type_mismatch;
-    } else if constexpr (bind_forward_prev_member_consume_by_value_requested_v<
-                             T,
-                             fn_t,
-                             std::decay_t<ReceiverSpec>,
-                             std::decay_t<Specs>...>) {
-        return bind_forward_prev_member_error::consume_by_value_not_supported;
     } else if constexpr (!bind_forward_prev_member_bindings_supported_v<
                              T,
                              fn_t,
@@ -307,12 +253,9 @@ consteval void emit_bind_forward_prev_member_diagnostic() {
     } else if constexpr (error == bind_forward_prev_member_error::payload_type_mismatch) {
         static_assert(bind_tasks_always_false_v<diagnostic_t>,
                       "bind_forward_prev_member<T>(...) requires the forwarded prev payload type to match T exactly");
-    } else if constexpr (error == bind_forward_prev_member_error::consume_by_value_not_supported) {
-        static_assert(bind_tasks_always_false_v<diagnostic_t>,
-                      "bind_forward_prev_member<T>(...) does not support consume_prev<T>() bound to T; use T&& if you want to forward the direct parent object identity");
     } else {
         static_assert(bind_tasks_always_false_v<diagnostic_t>,
-                      "bind_forward_prev_member<T>(...) only supports borrow_prev_mut<T>() -> T& or consume_prev<T>() -> T&&");
+                      "bind_forward_prev_member<T>(...) only supports borrow_prev_mut<T>() -> T&");
     }
 }
 

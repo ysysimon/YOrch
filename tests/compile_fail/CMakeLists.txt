@@ -199,20 +199,26 @@ yorch_expect_compile_failure(
 
 yorch_expect_compile_failure(
   bind_forward_prev_member_borrow_prev
-  "bind_forward_prev_member<T>(...) only supports borrow_prev_mut<T>() -> T& or consume_prev<T>() -> T&&"
+  "bind_forward_prev_member<T>(...) only supports borrow_prev_mut<T>() -> T&"
   "bind_forward_prev_member borrow_prev binding"
 )
 
 yorch_expect_compile_failure(
   bind_forward_prev_member_copy_prev
-  "bind_forward_prev_member<T>(...) only supports borrow_prev_mut<T>() -> T& or consume_prev<T>() -> T&&"
+  "bind_forward_prev_member<T>(...) only supports borrow_prev_mut<T>() -> T&"
   "bind_forward_prev_member copy_prev binding"
 )
 
 yorch_expect_compile_failure(
   bind_forward_prev_member_consume_by_value
-  "bind_forward_prev_member<T>(...) does not support consume_prev<T>() bound to T; use T&& if you want to forward the direct parent object identity"
+  "bind_forward_prev_member<T>(...) only supports borrow_prev_mut<T>() -> T&"
   "bind_forward_prev_member consume by value"
+)
+
+yorch_expect_compile_failure(
+  bind_forward_prev_member_consume_prev_receiver
+  "bind_forward_prev_member<T>(...) only supports borrow_prev_mut<T>() -> T&"
+  "bind_forward_prev_member consume_prev receiver"
 )
 
 yorch_expect_compile_failure(
@@ -229,20 +235,26 @@ yorch_expect_compile_failure(
 
 yorch_expect_compile_failure(
   bind_forward_prev_borrow_prev
-  "bind_forward_prev<T>(...) only supports borrow_prev_mut<T>() -> T& or consume_prev<T>() -> T&&"
+  "bind_forward_prev<T>(...) only supports borrow_prev_mut<T>() -> T&"
   "bind_forward_prev borrow_prev binding"
 )
 
 yorch_expect_compile_failure(
   bind_forward_prev_copy_prev
-  "bind_forward_prev<T>(...) only supports borrow_prev_mut<T>() -> T& or consume_prev<T>() -> T&&"
+  "bind_forward_prev<T>(...) only supports borrow_prev_mut<T>() -> T&"
   "bind_forward_prev copy_prev binding"
 )
 
 yorch_expect_compile_failure(
   bind_forward_prev_consume_by_value
-  "bind_forward_prev<T>(...) does not support consume_prev<T>() bound to T; use T&& if you want to forward the direct parent object identity"
+  "bind_forward_prev<T>(...) only supports borrow_prev_mut<T>() -> T&"
   "bind_forward_prev consume by value"
+)
+
+yorch_expect_compile_failure(
+  bind_forward_prev_consume_prev
+  "bind_forward_prev<T>(...) only supports borrow_prev_mut<T>() -> T&"
+  "bind_forward_prev consume_prev"
 )
 
 yorch_expect_compile_failure(

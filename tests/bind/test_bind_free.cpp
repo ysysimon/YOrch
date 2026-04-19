@@ -58,16 +58,7 @@ using forward_prev_borrow_mut_task_t = decltype(yorch::bind_forward_prev<int>(
     },
     yorch::borrow_prev_mut<int>()));
 
-using forward_prev_consume_rvalue_task_t = decltype(yorch::bind_forward_prev<int>(
-    // NOLINTNEXTLINE(cppcoreguidelines-rvalue-reference-param-not-moved)
-    [](int&& value) noexcept -> yorch::step_result {
-        value += 1;
-        return yorch::step_result::success();
-    },
-    yorch::consume_prev<int>()));
-
 static_assert(yorch::detail::task_prev_access_valid_v<forward_prev_borrow_mut_task_t>);
-static_assert(yorch::detail::task_prev_access_valid_v<forward_prev_consume_rvalue_task_t>);
 static_assert(yorch::detail::task_uses_forward_prev_output_protocol_v<forward_prev_borrow_mut_task_t>);
 static_assert(yorch::detail::validate_bind_forward_prev<int, decltype([](int&) noexcept -> yorch::step_result {
     return yorch::step_result::success();
@@ -90,12 +81,9 @@ static_assert(!yorch::detail::bind_forward_prev_bindings_supported_v<int, declty
 static_assert(yorch::detail::validate_bind_forward_prev<int, decltype([](int) noexcept -> yorch::step_result {
     return yorch::step_result::success();
 }), yorch::copy_prev_t<int>>() == yorch::detail::bind_forward_prev_error::binding_mode_not_supported);
-static_assert(yorch::detail::bind_forward_prev_consume_by_value_requested_v<int, decltype([](int) noexcept -> yorch::step_result {
-    return yorch::step_result::success();
-}), yorch::consume_prev_t<int>>);
 static_assert(yorch::detail::validate_bind_forward_prev<int, decltype([](int) noexcept -> yorch::step_result {
     return yorch::step_result::success();
-}), yorch::consume_prev_t<int>>() == yorch::detail::bind_forward_prev_error::consume_by_value_not_supported);
+}), yorch::consume_prev_t<int>>() == yorch::detail::bind_forward_prev_error::binding_mode_not_supported);
 
 }  // namespace
 

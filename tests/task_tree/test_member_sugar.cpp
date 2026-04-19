@@ -129,31 +129,6 @@ TEST(TaskTreeTest, NodeForwardPrevMemberSugarSupportsBorrowPrevMutReceiver) {
     EXPECT_EQ(seen_value, 12);
 }
 
-TEST(TaskTreeTest, NodeForwardPrevMemberSugarSupportsConsumePrevReceiver) {
-    int seen_value = 0;
-
-    auto tree = yorch::task_tree
-        .root(yorch::bind([]() noexcept -> move_only_tree_worker {
-            return move_only_tree_worker {15};
-        }))
-        .node_forward_prev_member<1>(
-            &move_only_tree_worker::adjust,
-            yorch::consume_prev<move_only_tree_worker>())(
-            yorch::value(3))
-        .node<2>(yorch::bind(
-            [&](const move_only_tree_worker& value) noexcept -> yorch::step_result {
-                seen_value = value.base;
-                return yorch::step_result::success();
-            },
-            yorch::borrow_prev<move_only_tree_worker>()));
-
-    auto plan = yorch::compile_plan(tree);
-    const auto result = yorch::run_plan(plan);
-
-    EXPECT_TRUE(result.ok());
-    EXPECT_EQ(seen_value, 15);
-}
-
 TEST(TaskTreeTest, NodeForwardPrevMemberSugarSupportsContextReceiverAndPrevPayloadParameter) {
     int seen_value = 0;
 

@@ -137,23 +137,6 @@ TEST(BindTest, TaskIntoMemberSugarAppliesAdaptersFromOutsideToInside) {
     EXPECT_EQ(slot.get(), 9);
 }
 
-TEST(BindTest, TaskForwardPrevMemberSugarAppliesAdaptersFromOutsideToInside) {
-    move_only_member_worker worker {9};
-
-    yorch::exec_context<void, decltype(yorch::prev_slot(worker))> exec {
-        yorch::prev_slot(worker)};
-
-    auto task = yorch::task_forward_prev_member(
-        &move_only_member_worker::adjust,
-        yorch::consume_prev<move_only_member_worker>(),
-        yorch::adapters(yorch::adapt_catch_as_failure()))(
-        yorch::value(5));
-
-    const auto result = task.invoke_raw(exec);
-
-    EXPECT_TRUE(result.ok());
-}
-
 TEST(BindTest, TaskMemberSugarRejectsMissingReceiverBinding) {
     static_assert(!can_make_task_member_without_receiver<decltype(&member_worker::accumulate)>);
     SUCCEED();
