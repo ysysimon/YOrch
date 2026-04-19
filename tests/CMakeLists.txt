@@ -33,7 +33,14 @@ yorch_add_gtest(test_result yorch::yorch test_result.cpp)
 yorch_add_gtest(test_context yorch::yorch test_context.cpp)
 yorch_add_gtest(test_specs yorch::yorch test_specs.cpp)
 yorch_add_gtest(test_resolve yorch::yorch test_resolve.cpp)
-yorch_add_gtest(test_bind yorch::yorch test_bind.cpp)
+yorch_add_gtest(
+  test_bind
+  yorch::yorch
+  bind/test_traits.cpp
+  bind/test_bind_free.cpp
+  bind/test_bind_member.cpp
+  bind/test_task_sugar.cpp
+)
 yorch_add_gtest(
   test_executor
   yorch::yorch
