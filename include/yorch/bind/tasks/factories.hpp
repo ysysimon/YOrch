@@ -4,7 +4,7 @@
 #include <type_traits>
 #include <utility>
 
-#include "detail.hpp"
+#include "../../detail/bind/tasks.hpp" // IWYU pragma: keep
 #include "types.hpp"
 
 namespace yorch {
