@@ -4,6 +4,53 @@ using namespace bind_test_support;
 
 namespace {
 
+struct bind_into_probe {
+    int value = 0;
+};
+
+struct bind_member_probe {
+    // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+    yorch::step_result run() noexcept {
+        return yorch::step_result::success();
+    }
+};
+
+static_assert(yorch::detail::validate_bind<decltype([](int) noexcept -> yorch::step_result {
+    return yorch::step_result::success();
+}), yorch::value_t<int>>() == yorch::detail::bind_error::ok);
+static_assert(yorch::detail::validate_bind<decltype(&bind_member_probe::run)>() ==
+              yorch::detail::bind_error::member_callable_not_supported);
+static_assert(yorch::detail::validate_bind<decltype([](auto&&) noexcept -> yorch::step_result {
+    return yorch::step_result::success();
+}), yorch::value_t<int>>() == yorch::detail::bind_error::callable_shape_invalid);
+static_assert(yorch::detail::validate_bind<decltype([](int, int) noexcept -> yorch::step_result {
+    return yorch::step_result::success();
+}), yorch::value_t<int>>() == yorch::detail::bind_error::arity_mismatch);
+
+static_assert(yorch::detail::validate_bind_into<int, decltype([](int, yorch::direct_out<int>) noexcept -> yorch::step_result {
+    return yorch::step_result::success();
+}), yorch::value_t<int>>() == yorch::detail::bind_into_error::ok);
+static_assert(yorch::detail::validate_bind_into<void, decltype([](int, yorch::direct_out<int>) noexcept -> yorch::step_result {
+    return yorch::step_result::success();
+}), yorch::value_t<int>>() == yorch::detail::bind_into_error::invalid_output_type);
+static_assert(yorch::detail::validate_bind_into<int&, decltype([](int, yorch::direct_out<int>) noexcept -> yorch::step_result {
+    return yorch::step_result::success();
+}), yorch::value_t<int>>() == yorch::detail::bind_into_error::invalid_output_type);
+static_assert(yorch::detail::validate_bind_into<int, decltype(&bind_member_probe::run)>() ==
+              yorch::detail::bind_into_error::member_callable_not_supported);
+static_assert(yorch::detail::validate_bind_into<int, decltype([](auto&&) noexcept -> yorch::step_result {
+    return yorch::step_result::success();
+})>() == yorch::detail::bind_into_error::callable_shape_invalid);
+static_assert(yorch::detail::validate_bind_into<int, decltype([]() noexcept -> yorch::step_result {
+    return yorch::step_result::success();
+})>() == yorch::detail::bind_into_error::missing_output_parameter);
+static_assert(yorch::detail::validate_bind_into<int, decltype([](int, yorch::direct_out<int>) noexcept -> yorch::step_result {
+    return yorch::step_result::success();
+})>() == yorch::detail::bind_into_error::arity_mismatch);
+static_assert(yorch::detail::validate_bind_into<int, decltype([](int, yorch::direct_out<long>) noexcept -> yorch::step_result {
+    return yorch::step_result::success();
+}), yorch::value_t<int>>() == yorch::detail::bind_into_error::last_parameter_not_direct_out);
+
 using forward_prev_borrow_mut_task_t = decltype(yorch::bind_forward_prev<int>(
     [](int& value) noexcept -> yorch::step_result {
         value += 1;

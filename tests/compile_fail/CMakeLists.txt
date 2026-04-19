@@ -24,6 +24,66 @@ function(yorch_expect_compile_failure case_name expected_message failure_message
 endfunction()
 
 yorch_expect_compile_failure(
+  bind_member_callable
+  "bind(...) does not accept member function pointers; use bind_member(...) instead"
+  "bind member callable"
+)
+
+yorch_expect_compile_failure(
+  bind_callable_shape_invalid
+  "bind(...) requires a callable with one non-overloaded concrete signature"
+  "bind callable shape invalid"
+)
+
+yorch_expect_compile_failure(
+  bind_arity_mismatch
+  "bind(...) requires exactly one spec per function parameter"
+  "bind arity mismatch"
+)
+
+yorch_expect_compile_failure(
+  bind_into_void_output
+  "bind_into<T>(...) requires a non-void owned payload type T"
+  "bind_into void output"
+)
+
+yorch_expect_compile_failure(
+  bind_into_reference_output
+  "bind_into<T>(...) requires a non-void owned payload type T"
+  "bind_into reference output"
+)
+
+yorch_expect_compile_failure(
+  bind_into_member_callable
+  "bind_into(...) does not accept member function pointers; use bind_into_member(...) instead"
+  "bind_into member callable"
+)
+
+yorch_expect_compile_failure(
+  bind_into_callable_shape_invalid
+  "bind_into(...) requires a callable with one non-overloaded concrete signature"
+  "bind_into callable shape invalid"
+)
+
+yorch_expect_compile_failure(
+  bind_into_missing_output_parameter
+  "bind_into(...) requires a callable whose last parameter is yorch::direct_out<T>"
+  "bind_into missing output parameter"
+)
+
+yorch_expect_compile_failure(
+  bind_into_arity_mismatch
+  "bind_into(...) requires exactly one spec per non-output function parameter"
+  "bind_into arity mismatch"
+)
+
+yorch_expect_compile_failure(
+  bind_into_wrong_output_parameter
+  "bind_into(...) callable must take yorch::direct_out<T> as its last parameter"
+  "bind_into wrong output parameter"
+)
+
+yorch_expect_compile_failure(
   bind_forward_prev_void_output
   "bind_forward_prev<T>(...) requires a non-void owned payload type T"
   "bind_forward_prev void output"

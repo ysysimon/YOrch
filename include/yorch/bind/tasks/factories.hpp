@@ -32,13 +32,7 @@ namespace yorch {
  */
 template <typename F, typename... Specs>
 constexpr auto bind(F&& f, Specs&&... specs) { // NOLINT(readability-identifier-length)
-    static_assert(
-        !detail::member_bind_callable<F>,
-        "bind(...) does not accept member function pointers; use bind_member(...) instead");
-    static_assert(
-        sizeof...(Specs) == detail::function_traits<std::remove_cvref_t<F>>::arity,
-        "bind(...) requires exactly one spec per function parameter"
-    );
+    detail::emit_bind_diagnostic<F, Specs...>();
 
     return bound_task<
         std::decay_t<F>,
@@ -64,22 +58,7 @@ constexpr auto bind(F&& f, Specs&&... specs) { // NOLINT(readability-identifier-
  */
 template <typename T, typename F, typename... Specs>
 constexpr auto bind_into(F&& f, Specs&&... specs) {
-    using fn_t = std::remove_cvref_t<F>;
-
-    static_assert(
-        !detail::member_bind_callable<fn_t>,
-        "bind_into(...) does not accept member function pointers; use bind_into_member(...) instead");
-    static_assert(detail::function_traits<fn_t>::arity > 0,
-                  "bind_into(...) requires a callable whose last parameter is yorch::direct_out<T>");
-    static_assert(
-        sizeof...(Specs) + 1 == detail::function_traits<fn_t>::arity,
-        "bind_into(...) requires exactly one spec per non-output function parameter");
-
-    using last_arg_t = detail::last_arg_t<fn_t>;
-
-    static_assert(
-        std::is_same_v<std::remove_cvref_t<last_arg_t>, direct_out<T>>,
-        "bind_into(...) callable must take yorch::direct_out<T> as its last parameter");
+    detail::emit_bind_into_diagnostic<T, F, Specs...>();
 
     return bound_output_task<
         std::decay_t<F>,

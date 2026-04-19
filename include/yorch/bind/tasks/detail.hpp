@@ -55,6 +55,23 @@ enum class bind_forward_prev_error {
     binding_mode_not_supported,
 };
 
+enum class bind_error {
+    ok,
+    member_callable_not_supported,
+    callable_shape_invalid,
+    arity_mismatch,
+};
+
+enum class bind_into_error {
+    ok,
+    invalid_output_type,
+    member_callable_not_supported,
+    callable_shape_invalid,
+    missing_output_parameter,
+    arity_mismatch,
+    last_parameter_not_direct_out,
+};
+
 template <typename... Specs>
 struct forward_prev_unique_prev_payload {
     using type = void;
@@ -128,6 +145,96 @@ template <typename T, typename F, typename... Specs>
 inline constexpr bool bind_forward_prev_consume_by_value_requested_v =
     forward_prev_consume_by_value_requested_impl<T, F, Specs...>(
         std::index_sequence_for<Specs...> {});
+
+template <typename F, typename... Specs>
+[[nodiscard]] consteval bind_error validate_bind() {
+    using fn_t = std::remove_cvref_t<F>;
+
+    if constexpr (member_bind_callable<fn_t>) {
+        return bind_error::member_callable_not_supported;
+    } else if constexpr (!ordinary_bind_callable<fn_t>) {
+        return bind_error::callable_shape_invalid;
+    } else if constexpr (sizeof...(Specs) != function_traits<fn_t>::arity) {
+        return bind_error::arity_mismatch;
+    } else {
+        return bind_error::ok;
+    }
+}
+
+template <typename F, typename... Specs>
+consteval void emit_bind_diagnostic() {
+    constexpr auto error = validate_bind<F, Specs...>();
+    using diagnostic_t = std::tuple<
+        std::type_identity<std::remove_cvref_t<F>>,
+        std::type_identity<std::remove_cvref_t<Specs>>...>;
+
+    if constexpr (error == bind_error::ok) {
+        return;
+    } else if constexpr (error == bind_error::member_callable_not_supported) {
+        static_assert(bind_tasks_always_false_v<diagnostic_t>,
+                      "bind(...) does not accept member function pointers; use bind_member(...) instead");
+    } else if constexpr (error == bind_error::callable_shape_invalid) {
+        static_assert(bind_tasks_always_false_v<diagnostic_t>,
+                      "bind(...) requires a callable with one non-overloaded concrete signature");
+    } else {
+        static_assert(bind_tasks_always_false_v<diagnostic_t>,
+                      "bind(...) requires exactly one spec per function parameter");
+    }
+}
+
+template <typename T, typename F, typename... Specs>
+[[nodiscard]] consteval bind_into_error validate_bind_into() {
+    using fn_t = std::remove_cvref_t<F>;
+
+    if constexpr (std::is_reference_v<T> || std::is_void_v<T>) {
+        return bind_into_error::invalid_output_type;
+    } else if constexpr (member_bind_callable<fn_t>) {
+        return bind_into_error::member_callable_not_supported;
+    } else if constexpr (!bind_callable<fn_t>) {
+        return bind_into_error::callable_shape_invalid;
+    } else if constexpr (function_traits<fn_t>::arity == 0) {
+        return bind_into_error::missing_output_parameter;
+    } else if constexpr (sizeof...(Specs) + 1 != function_traits<fn_t>::arity) {
+        return bind_into_error::arity_mismatch;
+    } else if constexpr (!std::is_same_v<
+                             std::remove_cvref_t<last_arg_t<fn_t>>,
+                             direct_out<T>>) {
+        return bind_into_error::last_parameter_not_direct_out;
+    } else {
+        return bind_into_error::ok;
+    }
+}
+
+template <typename T, typename F, typename... Specs>
+consteval void emit_bind_into_diagnostic() {
+    constexpr auto error = validate_bind_into<T, F, Specs...>();
+    using diagnostic_t = std::tuple<
+        std::type_identity<T>,
+        std::type_identity<std::remove_cvref_t<F>>,
+        std::type_identity<std::remove_cvref_t<Specs>>...>;
+
+    if constexpr (error == bind_into_error::ok) {
+        return;
+    } else if constexpr (error == bind_into_error::invalid_output_type) {
+        static_assert(bind_tasks_always_false_v<diagnostic_t>,
+                      "bind_into<T>(...) requires a non-void owned payload type T");
+    } else if constexpr (error == bind_into_error::member_callable_not_supported) {
+        static_assert(bind_tasks_always_false_v<diagnostic_t>,
+                      "bind_into(...) does not accept member function pointers; use bind_into_member(...) instead");
+    } else if constexpr (error == bind_into_error::callable_shape_invalid) {
+        static_assert(bind_tasks_always_false_v<diagnostic_t>,
+                      "bind_into(...) requires a callable with one non-overloaded concrete signature");
+    } else if constexpr (error == bind_into_error::missing_output_parameter) {
+        static_assert(bind_tasks_always_false_v<diagnostic_t>,
+                      "bind_into(...) requires a callable whose last parameter is yorch::direct_out<T>");
+    } else if constexpr (error == bind_into_error::arity_mismatch) {
+        static_assert(bind_tasks_always_false_v<diagnostic_t>,
+                      "bind_into(...) requires exactly one spec per non-output function parameter");
+    } else {
+        static_assert(bind_tasks_always_false_v<diagnostic_t>,
+                      "bind_into(...) callable must take yorch::direct_out<T> as its last parameter");
+    }
+}
 
 template <typename T, typename F, typename... Specs>
 [[nodiscard]] consteval bind_forward_prev_error validate_bind_forward_prev() {
