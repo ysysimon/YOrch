@@ -93,35 +93,7 @@ constexpr auto bind_into(F&& f, Specs&&... specs) {
 
 template <typename T, typename F, typename... Specs>
 constexpr auto bind_forward_prev(F&& f, Specs&&... specs) {
-    using fn_t = std::remove_cvref_t<F>;
-    using result_t = detail::result_t<fn_t>;
-
-    static_assert(!std::is_reference_v<T> && !std::is_void_v<T>,
-                  "bind_forward_prev<T>(...) requires a non-void owned payload type T");
-    static_assert(
-        !detail::member_bind_callable<fn_t>,
-        "bind_forward_prev<T>(...) does not support member function pointers in v1");
-    static_assert(
-        !detail::inferable_direct_output_callable<fn_t>,
-        "bind_forward_prev<T>(...) does not accept callables with yorch::direct_out<T>; use bind_into(...) for direct-output materialization");
-    static_assert(
-        sizeof...(Specs) == detail::function_traits<fn_t>::arity,
-        "bind_forward_prev<T>(...) requires exactly one spec per function parameter");
-    static_assert(
-        std::is_void_v<result_t> || std::is_same_v<result_t, step_result>,
-        "bind_forward_prev<T>(...) callable must return void or yorch::step_result");
-    static_assert(
-        detail::forward_prev_prev_access_count_v<std::decay_t<Specs>...> == 1,
-        "bind_forward_prev<T>(...) requires exactly one prev-access binding");
-    static_assert(
-        detail::bind_forward_prev_payload_matches_v<T, fn_t, std::decay_t<Specs>...>,
-        "bind_forward_prev<T>(...) requires the forwarded prev payload type to match T exactly");
-    static_assert(
-        !detail::bind_forward_prev_consume_by_value_requested_v<T, fn_t, std::decay_t<Specs>...>,
-        "bind_forward_prev<T>(...) does not support consume_prev<T>() bound to T; use T&& if you want to forward the direct parent object identity");
-    static_assert(
-        detail::bind_forward_prev_bindings_supported_v<T, fn_t, std::decay_t<Specs>...>,
-        "bind_forward_prev<T>(...) only supports borrow_prev_mut<T>() -> T& or consume_prev<T>() -> T&&");
+    detail::emit_bind_forward_prev_diagnostic<T, F, Specs...>();
 
     return bound_forward_prev_task<
         std::decay_t<F>,

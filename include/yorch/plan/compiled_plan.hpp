@@ -5,6 +5,7 @@
 #include <type_traits>
 #include <utility>
 
+#include "../detail/executor/plan_validation.hpp"
 #include "../task_tree.hpp"
 #include "layout.hpp"
 #include "traits.hpp"
@@ -145,6 +146,8 @@ template <typename... Nodes>
     requires (sizeof...(Nodes) > 0) &&
              detail::plannable_plan_nodes<Nodes...>
 [[nodiscard]] constexpr auto compile_plan(task_tree_builder<Nodes...>&& tree) {
+    detail::emit_plan_diagnostic<compiled_plan<Nodes...>>();
+
     return compiled_plan<Nodes...> {
         std::move(tree.nodes)
     };
@@ -154,6 +157,8 @@ template <typename... Nodes>
     requires (sizeof...(Nodes) > 0) &&
              detail::plannable_plan_nodes<Nodes...>
 [[nodiscard]] constexpr auto compile_plan(const task_tree_builder<Nodes...>& tree) {
+    detail::emit_plan_diagnostic<compiled_plan<Nodes...>>();
+
     return compiled_plan<Nodes...> {
         tree.nodes
     };

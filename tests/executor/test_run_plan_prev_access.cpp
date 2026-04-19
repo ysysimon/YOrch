@@ -171,7 +171,7 @@ TEST(ExecutorTest, ForwardPrevPlanValidationRejectsRootAndVoidParentSources) {
             return yorch::step_result::success();
         },
         yorch::borrow_prev_mut<int>()));
-    auto invalid_root_plan = yorch::compile_plan(invalid_root_tree);
+    using invalid_root_plan_t = yorch::compiled_plan_t<decltype(invalid_root_tree)>;
 
     auto invalid_void_parent_tree = yorch::task_tree.root(yorch::bind([]() noexcept -> yorch::step_result {
             return yorch::step_result::success();
@@ -181,10 +181,14 @@ TEST(ExecutorTest, ForwardPrevPlanValidationRejectsRootAndVoidParentSources) {
                 return yorch::step_result::success();
             },
             yorch::borrow_prev_mut<int>()));
-    auto invalid_void_parent_plan = yorch::compile_plan(invalid_void_parent_tree);
+    using invalid_void_parent_plan_t = yorch::compiled_plan_t<decltype(invalid_void_parent_tree)>;
 
-    static_assert(!yorch::detail::plan_forward_prev_source_valid_v<decltype(invalid_root_plan)>);
-    static_assert(!yorch::detail::plan_forward_prev_source_valid_v<decltype(invalid_void_parent_plan)>);
+    static_assert(yorch::detail::validate_plan<invalid_root_plan_t>() ==
+                  yorch::detail::plan_validation_error::forward_prev_root_node);
+    static_assert(yorch::detail::validate_plan<invalid_void_parent_plan_t>() ==
+                  yorch::detail::plan_validation_error::forward_prev_void_parent);
+    static_assert(!yorch::detail::plan_forward_prev_source_valid_v<invalid_root_plan_t>);
+    static_assert(!yorch::detail::plan_forward_prev_source_valid_v<invalid_void_parent_plan_t>);
     SUCCEED();
 }
 
@@ -394,7 +398,7 @@ TEST(ExecutorTest, RunPlanAllowsReadonlyBorrowFanoutAndRejectsExclusiveAccessFan
                 return yorch::step_result::success();
             },
             yorch::borrow_prev<int>()));
-    auto invalid_ref_plan = yorch::compile_plan(invalid_ref_tree);
+    using invalid_ref_plan_t = yorch::compiled_plan_t<decltype(invalid_ref_tree)>;
 
     auto invalid_value_tree = yorch::task_tree.root(yorch::bind([]() noexcept -> int {
             return 1;
@@ -409,11 +413,11 @@ TEST(ExecutorTest, RunPlanAllowsReadonlyBorrowFanoutAndRejectsExclusiveAccessFan
                 return yorch::step_result::success();
             },
             yorch::borrow_prev<int>()));
-    auto invalid_value_plan = yorch::compile_plan(invalid_value_tree);
+    using invalid_value_plan_t = yorch::compiled_plan_t<decltype(invalid_value_tree)>;
 
     static_assert(can_run_plan<decltype(valid_plan)>);
-    static_assert(!can_run_plan<decltype(invalid_ref_plan)>);
-    static_assert(!can_run_plan<decltype(invalid_value_plan)>);
+    static_assert(!can_run_plan<invalid_ref_plan_t>);
+    static_assert(!can_run_plan<invalid_value_plan_t>);
 
     const auto result = yorch::run_plan(valid_plan);
     EXPECT_TRUE(result.ok());
@@ -429,9 +433,9 @@ TEST(ExecutorTest, RunPlanRejectsReadonlyReceiverForMutableMemberFunction) {
             &member_prev_worker::mutate,
             yorch::borrow_prev<member_prev_worker>(),
             yorch::value(3)));
-    auto invalid_plan = yorch::compile_plan(invalid_tree);
+    using invalid_plan_t = yorch::compiled_plan_t<decltype(invalid_tree)>;
 
-    static_assert(!can_run_plan<decltype(invalid_plan)>);
+    static_assert(!can_run_plan<invalid_plan_t>);
     SUCCEED();
 }
 
@@ -499,9 +503,9 @@ TEST(ExecutorTest, RunPlanRejectsConsumePrevReceiverMixedWithAdditionalPrevAcces
             &member_prev_worker::mutate_with_copy,
             yorch::consume_prev<member_prev_worker>(),
             yorch::copy_prev<member_prev_worker>()));
-    auto invalid_plan = yorch::compile_plan(invalid_tree);
+    using invalid_plan_t = yorch::compiled_plan_t<decltype(invalid_tree)>;
 
-    static_assert(!can_run_plan<decltype(invalid_plan)>);
+    static_assert(!can_run_plan<invalid_plan_t>);
     SUCCEED();
 }
 
@@ -515,9 +519,9 @@ TEST(ExecutorTest, RunPlanRejectsBorrowPrevMutReceiverMixedWithSharedPrevAccess)
             &member_prev_worker::mutate_from_view,
             yorch::borrow_prev_mut<member_prev_worker>(),
             yorch::borrow_prev<member_prev_worker>()));
-    auto invalid_plan = yorch::compile_plan(invalid_tree);
+    using invalid_plan_t = yorch::compiled_plan_t<decltype(invalid_tree)>;
 
-    static_assert(!can_run_plan<decltype(invalid_plan)>);
+    static_assert(!can_run_plan<invalid_plan_t>);
     SUCCEED();
 }
 
@@ -629,7 +633,7 @@ TEST(ExecutorTest, RunPlanRejectsMixedOrRepeatedExclusivePrevAccessWithinOneTask
             },
             yorch::borrow_prev<int>(),
             yorch::borrow_prev_mut<int>()));
-    auto invalid_mixed_borrow_plan = yorch::compile_plan(invalid_mixed_borrow_tree);
+    using invalid_mixed_borrow_plan_t = yorch::compiled_plan_t<decltype(invalid_mixed_borrow_tree)>;
 
     auto invalid_double_mut_tree = yorch::task_tree.root(yorch::bind([]() noexcept -> int {
             return 1;
@@ -640,7 +644,7 @@ TEST(ExecutorTest, RunPlanRejectsMixedOrRepeatedExclusivePrevAccessWithinOneTask
             },
             yorch::borrow_prev_mut<int>(),
             yorch::borrow_prev_mut<int>()));
-    auto invalid_double_mut_plan = yorch::compile_plan(invalid_double_mut_tree);
+    using invalid_double_mut_plan_t = yorch::compiled_plan_t<decltype(invalid_double_mut_tree)>;
 
     auto invalid_mixed_consume_tree = yorch::task_tree.root(yorch::bind([]() noexcept -> int {
             return 1;
@@ -651,7 +655,7 @@ TEST(ExecutorTest, RunPlanRejectsMixedOrRepeatedExclusivePrevAccessWithinOneTask
             },
             yorch::consume_prev<int>(),
             yorch::borrow_prev<int>()));
-    auto invalid_mixed_consume_plan = yorch::compile_plan(invalid_mixed_consume_tree);
+    using invalid_mixed_consume_plan_t = yorch::compiled_plan_t<decltype(invalid_mixed_consume_tree)>;
 
     auto invalid_copy_mut_tree = yorch::task_tree.root(yorch::bind([]() noexcept -> int {
             return 1;
@@ -662,7 +666,7 @@ TEST(ExecutorTest, RunPlanRejectsMixedOrRepeatedExclusivePrevAccessWithinOneTask
             },
             yorch::copy_prev<int>(),
             yorch::borrow_prev_mut<int>()));
-    auto invalid_copy_mut_plan = yorch::compile_plan(invalid_copy_mut_tree);
+    using invalid_copy_mut_plan_t = yorch::compiled_plan_t<decltype(invalid_copy_mut_tree)>;
 
     auto invalid_copy_consume_tree = yorch::task_tree.root(yorch::bind([]() noexcept -> int {
             return 1;
@@ -673,13 +677,13 @@ TEST(ExecutorTest, RunPlanRejectsMixedOrRepeatedExclusivePrevAccessWithinOneTask
             },
             yorch::copy_prev<int>(),
             yorch::consume_prev<int>()));
-    auto invalid_copy_consume_plan = yorch::compile_plan(invalid_copy_consume_tree);
+    using invalid_copy_consume_plan_t = yorch::compiled_plan_t<decltype(invalid_copy_consume_tree)>;
 
-    static_assert(!can_run_plan<decltype(invalid_mixed_borrow_plan)>);
-    static_assert(!can_run_plan<decltype(invalid_double_mut_plan)>);
-    static_assert(!can_run_plan<decltype(invalid_mixed_consume_plan)>);
-    static_assert(!can_run_plan<decltype(invalid_copy_mut_plan)>);
-    static_assert(!can_run_plan<decltype(invalid_copy_consume_plan)>);
+    static_assert(!can_run_plan<invalid_mixed_borrow_plan_t>);
+    static_assert(!can_run_plan<invalid_double_mut_plan_t>);
+    static_assert(!can_run_plan<invalid_mixed_consume_plan_t>);
+    static_assert(!can_run_plan<invalid_copy_mut_plan_t>);
+    static_assert(!can_run_plan<invalid_copy_consume_plan_t>);
     SUCCEED();
 }
 
@@ -689,33 +693,35 @@ TEST(ExecutorTest, RunPlanRejectsAnyPrevAccessOnRootNode) {
             return yorch::step_result::success();
         },
         yorch::borrow_prev<int>()));
-    auto invalid_root_plan = yorch::compile_plan(invalid_root_tree);
+    using invalid_root_plan_t = yorch::compiled_plan_t<decltype(invalid_root_tree)>;
 
     auto invalid_root_mut_tree = yorch::task_tree.root(yorch::bind(
         [](int&) noexcept -> yorch::step_result {
             return yorch::step_result::success();
         },
         yorch::borrow_prev_mut<int>()));
-    auto invalid_root_mut_plan = yorch::compile_plan(invalid_root_mut_tree);
+    using invalid_root_mut_plan_t = yorch::compiled_plan_t<decltype(invalid_root_mut_tree)>;
 
     auto invalid_root_consume_tree = yorch::task_tree.root(yorch::bind(
         [](int) noexcept -> yorch::step_result {
             return yorch::step_result::success();
         },
         yorch::consume_prev<int>()));
-    auto invalid_root_consume_plan = yorch::compile_plan(invalid_root_consume_tree);
+    using invalid_root_consume_plan_t = yorch::compiled_plan_t<decltype(invalid_root_consume_tree)>;
 
     auto invalid_root_copy_tree = yorch::task_tree.root(yorch::bind(
         [](int) noexcept -> yorch::step_result {
             return yorch::step_result::success();
         },
         yorch::copy_prev<int>()));
-    auto invalid_root_copy_plan = yorch::compile_plan(invalid_root_copy_tree);
+    using invalid_root_copy_plan_t = yorch::compiled_plan_t<decltype(invalid_root_copy_tree)>;
 
-    static_assert(!can_run_plan<decltype(invalid_root_plan)>);
-    static_assert(!can_run_plan<decltype(invalid_root_mut_plan)>);
-    static_assert(!can_run_plan<decltype(invalid_root_consume_plan)>);
-    static_assert(!can_run_plan<decltype(invalid_root_copy_plan)>);
+    static_assert(yorch::detail::validate_plan<invalid_root_plan_t>() ==
+                  yorch::detail::plan_validation_error::prev_access_root_node);
+    static_assert(!can_run_plan<invalid_root_plan_t>);
+    static_assert(!can_run_plan<invalid_root_mut_plan_t>);
+    static_assert(!can_run_plan<invalid_root_consume_plan_t>);
+    static_assert(!can_run_plan<invalid_root_copy_plan_t>);
     SUCCEED();
 }
 
@@ -726,7 +732,7 @@ TEST(ExecutorTest, RunPlanRejectsAnyPrevAccessWhenDirectParentOutputIsVoid) {
                 return yorch::step_result::success();
             },
             yorch::borrow_prev<int>()));
-    auto invalid_void_parent_plan = yorch::compile_plan(invalid_void_parent_tree);
+    using invalid_void_parent_plan_t = yorch::compiled_plan_t<decltype(invalid_void_parent_tree)>;
 
     auto invalid_void_parent_mut_tree = yorch::task_tree.root(yorch::bind([]() noexcept {}))
         .node<1>(yorch::bind(
@@ -734,7 +740,7 @@ TEST(ExecutorTest, RunPlanRejectsAnyPrevAccessWhenDirectParentOutputIsVoid) {
                 return yorch::step_result::success();
             },
             yorch::borrow_prev_mut<int>()));
-    auto invalid_void_parent_mut_plan = yorch::compile_plan(invalid_void_parent_mut_tree);
+    using invalid_void_parent_mut_plan_t = yorch::compiled_plan_t<decltype(invalid_void_parent_mut_tree)>;
 
     auto invalid_void_parent_consume_tree = yorch::task_tree.root(yorch::bind([]() noexcept {}))
         .node<1>(yorch::bind(
@@ -742,7 +748,7 @@ TEST(ExecutorTest, RunPlanRejectsAnyPrevAccessWhenDirectParentOutputIsVoid) {
                 return yorch::step_result::success();
             },
             yorch::consume_prev<int>()));
-    auto invalid_void_parent_consume_plan = yorch::compile_plan(invalid_void_parent_consume_tree);
+    using invalid_void_parent_consume_plan_t = yorch::compiled_plan_t<decltype(invalid_void_parent_consume_tree)>;
 
     auto invalid_void_parent_copy_tree = yorch::task_tree.root(yorch::bind([]() noexcept {}))
         .node<1>(yorch::bind(
@@ -750,12 +756,14 @@ TEST(ExecutorTest, RunPlanRejectsAnyPrevAccessWhenDirectParentOutputIsVoid) {
                 return yorch::step_result::success();
             },
             yorch::copy_prev<int>()));
-    auto invalid_void_parent_copy_plan = yorch::compile_plan(invalid_void_parent_copy_tree);
+    using invalid_void_parent_copy_plan_t = yorch::compiled_plan_t<decltype(invalid_void_parent_copy_tree)>;
 
-    static_assert(!can_run_plan<decltype(invalid_void_parent_plan)>);
-    static_assert(!can_run_plan<decltype(invalid_void_parent_mut_plan)>);
-    static_assert(!can_run_plan<decltype(invalid_void_parent_consume_plan)>);
-    static_assert(!can_run_plan<decltype(invalid_void_parent_copy_plan)>);
+    static_assert(yorch::detail::validate_plan<invalid_void_parent_plan_t>() ==
+                  yorch::detail::plan_validation_error::prev_access_void_parent);
+    static_assert(!can_run_plan<invalid_void_parent_plan_t>);
+    static_assert(!can_run_plan<invalid_void_parent_mut_plan_t>);
+    static_assert(!can_run_plan<invalid_void_parent_consume_plan_t>);
+    static_assert(!can_run_plan<invalid_void_parent_copy_plan_t>);
     SUCCEED();
 }
 
@@ -772,9 +780,11 @@ TEST(ExecutorTest, RunPlanRejectsConsumePrevInsideRetryAdapter) {
                 },
                 yorch::consume_prev<int>()),
             yorch::retry_fixed_policy {1}));
-    auto invalid_retry_plan = yorch::compile_plan(invalid_retry_tree);
+    using invalid_retry_plan_t = yorch::compiled_plan_t<decltype(invalid_retry_tree)>;
 
-    static_assert(!can_run_plan<decltype(invalid_retry_plan)>);
+    static_assert(yorch::detail::validate_plan<invalid_retry_plan_t>() ==
+                  yorch::detail::plan_validation_error::prev_access_mode_invalid);
+    static_assert(!can_run_plan<invalid_retry_plan_t>);
     SUCCEED();
 }
 
@@ -790,9 +800,11 @@ TEST(ExecutorTest, RunPlanRejectsConsumePrevReceiverInsideRetryAdapter) {
                 yorch::consume_prev<member_prev_worker>(),
                 yorch::value(2)),
             yorch::retry_fixed_policy {1}));
-    auto invalid_retry_plan = yorch::compile_plan(invalid_retry_tree);
+    using invalid_retry_plan_t = yorch::compiled_plan_t<decltype(invalid_retry_tree)>;
 
-    static_assert(!can_run_plan<decltype(invalid_retry_plan)>);
+    static_assert(yorch::detail::validate_plan<invalid_retry_plan_t>() ==
+                  yorch::detail::plan_validation_error::prev_access_mode_invalid);
+    static_assert(!can_run_plan<invalid_retry_plan_t>);
     SUCCEED();
 }
 

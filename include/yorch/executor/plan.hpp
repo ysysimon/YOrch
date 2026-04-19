@@ -3,6 +3,7 @@
 #include <type_traits>
 
 #include "../detail/executor/fanout.hpp"
+#include "../detail/executor/plan_validation.hpp"
 #include "../detail/executor/prev_validation.hpp"
 #include "../detail/executor/serial_dfs.hpp"
 #include "../detail/executor/serial_dfs_explicit_heap_stack.hpp"
@@ -41,6 +42,7 @@ template <
     requires detail::slot_layout_policy<LayoutPolicy> &&
              detail::exec_policy<ExecPolicy> &&
              (Plan::node_count > 0) &&
+             detail::plan_valid_v<Plan> &&
              detail::plan_prev_source_valid_v<Plan> &&
              detail::plan_prev_access_valid_v<Plan> &&
              detail::plan_forward_prev_source_valid_v<Plan> &&
@@ -74,6 +76,7 @@ template <
     requires detail::slot_layout_policy<LayoutPolicy> &&
              detail::exec_policy<ExecPolicy> &&
              (Plan::node_count > 0) &&
+             detail::plan_valid_v<Plan> &&
              detail::plan_prev_source_valid_v<Plan> &&
              detail::plan_prev_access_valid_v<Plan> &&
              detail::plan_forward_prev_source_valid_v<Plan> &&

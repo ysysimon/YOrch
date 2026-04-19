@@ -11,6 +11,9 @@
 
 namespace yorch::detail {
 
+template <typename>
+inline constexpr bool bind_tasks_always_false_v = false;
+
 template <typename Task>
 concept bind_task_object =
     requires {
@@ -37,6 +40,20 @@ constexpr auto apply_catch_adapter(Task&& task, PolicyLike&& policy_like) {
 template <typename... Specs>
 inline constexpr std::size_t forward_prev_prev_access_count_v =
     (0U + ... + (is_prev_access_spec_v<std::remove_cvref_t<Specs>> ? 1U : 0U));
+
+enum class bind_forward_prev_error {
+    ok,
+    invalid_output_type,
+    member_callable_not_supported,
+    direct_output_callable_not_supported,
+    callable_shape_invalid,
+    arity_mismatch,
+    invalid_result_type,
+    prev_access_count_invalid,
+    payload_type_mismatch,
+    consume_by_value_not_supported,
+    binding_mode_not_supported,
+};
 
 template <typename... Specs>
 struct forward_prev_unique_prev_payload {
@@ -111,5 +128,78 @@ template <typename T, typename F, typename... Specs>
 inline constexpr bool bind_forward_prev_consume_by_value_requested_v =
     forward_prev_consume_by_value_requested_impl<T, F, Specs...>(
         std::index_sequence_for<Specs...> {});
+
+template <typename T, typename F, typename... Specs>
+[[nodiscard]] consteval bind_forward_prev_error validate_bind_forward_prev() {
+    using fn_t = std::remove_cvref_t<F>;
+
+    if constexpr (std::is_reference_v<T> || std::is_void_v<T>) {
+        return bind_forward_prev_error::invalid_output_type;
+    } else if constexpr (member_bind_callable<fn_t>) {
+        return bind_forward_prev_error::member_callable_not_supported;
+    } else if constexpr (inferable_direct_output_callable<fn_t>) {
+        return bind_forward_prev_error::direct_output_callable_not_supported;
+    } else if constexpr (!ordinary_bind_callable<fn_t>) {
+        return bind_forward_prev_error::callable_shape_invalid;
+    } else if constexpr (sizeof...(Specs) != function_traits<fn_t>::arity) {
+        return bind_forward_prev_error::arity_mismatch;
+    } else if constexpr (!(std::is_void_v<result_t<fn_t>> ||
+                           std::is_same_v<result_t<fn_t>, step_result>)) {
+        return bind_forward_prev_error::invalid_result_type;
+    } else if constexpr (forward_prev_prev_access_count_v<std::decay_t<Specs>...> != 1) {
+        return bind_forward_prev_error::prev_access_count_invalid;
+    } else if constexpr (!bind_forward_prev_payload_matches_v<T, fn_t, std::decay_t<Specs>...>) {
+        return bind_forward_prev_error::payload_type_mismatch;
+    } else if constexpr (bind_forward_prev_consume_by_value_requested_v<T, fn_t, std::decay_t<Specs>...>) {
+        return bind_forward_prev_error::consume_by_value_not_supported;
+    } else if constexpr (!bind_forward_prev_bindings_supported_v<T, fn_t, std::decay_t<Specs>...>) {
+        return bind_forward_prev_error::binding_mode_not_supported;
+    } else {
+        return bind_forward_prev_error::ok;
+    }
+}
+
+template <typename T, typename F, typename... Specs>
+consteval void emit_bind_forward_prev_diagnostic() {
+    constexpr auto error = validate_bind_forward_prev<T, F, Specs...>();
+    using diagnostic_t = std::tuple<
+        std::type_identity<T>,
+        std::type_identity<std::remove_cvref_t<F>>,
+        std::type_identity<std::remove_cvref_t<Specs>>...>;
+
+    if constexpr (error == bind_forward_prev_error::ok) {
+        return;
+    } else if constexpr (error == bind_forward_prev_error::invalid_output_type) {
+        static_assert(bind_tasks_always_false_v<diagnostic_t>,
+                      "bind_forward_prev<T>(...) requires a non-void owned payload type T");
+    } else if constexpr (error == bind_forward_prev_error::member_callable_not_supported) {
+        static_assert(bind_tasks_always_false_v<diagnostic_t>,
+                      "bind_forward_prev<T>(...) does not support member function pointers in v1");
+    } else if constexpr (error == bind_forward_prev_error::direct_output_callable_not_supported) {
+        static_assert(bind_tasks_always_false_v<diagnostic_t>,
+                      "bind_forward_prev<T>(...) does not accept callables with yorch::direct_out<T>; use bind_into(...) for direct-output materialization");
+    } else if constexpr (error == bind_forward_prev_error::callable_shape_invalid) {
+        static_assert(bind_tasks_always_false_v<diagnostic_t>,
+                      "bind_forward_prev<T>(...) requires a callable with one non-overloaded concrete signature");
+    } else if constexpr (error == bind_forward_prev_error::arity_mismatch) {
+        static_assert(bind_tasks_always_false_v<diagnostic_t>,
+                      "bind_forward_prev<T>(...) requires exactly one spec per function parameter");
+    } else if constexpr (error == bind_forward_prev_error::invalid_result_type) {
+        static_assert(bind_tasks_always_false_v<diagnostic_t>,
+                      "bind_forward_prev<T>(...) callable must return void or yorch::step_result");
+    } else if constexpr (error == bind_forward_prev_error::prev_access_count_invalid) {
+        static_assert(bind_tasks_always_false_v<diagnostic_t>,
+                      "bind_forward_prev<T>(...) requires exactly one prev-access binding");
+    } else if constexpr (error == bind_forward_prev_error::payload_type_mismatch) {
+        static_assert(bind_tasks_always_false_v<diagnostic_t>,
+                      "bind_forward_prev<T>(...) requires the forwarded prev payload type to match T exactly");
+    } else if constexpr (error == bind_forward_prev_error::consume_by_value_not_supported) {
+        static_assert(bind_tasks_always_false_v<diagnostic_t>,
+                      "bind_forward_prev<T>(...) does not support consume_prev<T>() bound to T; use T&& if you want to forward the direct parent object identity");
+    } else {
+        static_assert(bind_tasks_always_false_v<diagnostic_t>,
+                      "bind_forward_prev<T>(...) only supports borrow_prev_mut<T>() -> T& or consume_prev<T>() -> T&&");
+    }
+}
 
 } // namespace yorch::detail

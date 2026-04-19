@@ -49,9 +49,11 @@ TEST(ExecutorTest, RunPlanRejectsExclusivePrevAccessUnderSharedReadonlyFanoutPol
                 return yorch::step_result::success();
             },
             yorch::borrow_prev_mut<int>()));
-    auto invalid_plan = yorch::compile_plan(invalid_tree);
+    using invalid_plan_t = yorch::compiled_plan_t<decltype(invalid_tree)>;
 
-    static_assert(!can_run_plan<decltype(invalid_plan)>);
+    static_assert(yorch::detail::validate_plan<invalid_plan_t>() ==
+                  yorch::detail::plan_validation_error::fanout_policy_invalid);
+    static_assert(!can_run_plan<invalid_plan_t>);
     SUCCEED();
 }
 
@@ -130,7 +132,7 @@ TEST(ExecutorTest, RunPlanRejectsInvalidConsumeWithCopiesFanoutCombinations) {
                 return yorch::step_result::success();
             },
             yorch::consume_prev<int>()));
-    auto invalid_double_consume_plan = yorch::compile_plan(invalid_double_consume_tree);
+    using invalid_double_consume_plan_t = yorch::compiled_plan_t<decltype(invalid_double_consume_tree)>;
 
     auto invalid_borrow_tree = yorch::task_tree.root(
             yorch::bind([]() noexcept -> int {
@@ -147,7 +149,7 @@ TEST(ExecutorTest, RunPlanRejectsInvalidConsumeWithCopiesFanoutCombinations) {
                 return yorch::step_result::success();
             },
             yorch::borrow_prev<int>()));
-    auto invalid_borrow_plan = yorch::compile_plan(invalid_borrow_tree);
+    using invalid_borrow_plan_t = yorch::compiled_plan_t<decltype(invalid_borrow_tree)>;
 
     auto invalid_mut_tree = yorch::task_tree.root(
             yorch::bind([]() noexcept -> int {
@@ -164,11 +166,13 @@ TEST(ExecutorTest, RunPlanRejectsInvalidConsumeWithCopiesFanoutCombinations) {
                 return yorch::step_result::success();
             },
             yorch::borrow_prev_mut<int>()));
-    auto invalid_mut_plan = yorch::compile_plan(invalid_mut_tree);
+    using invalid_mut_plan_t = yorch::compiled_plan_t<decltype(invalid_mut_tree)>;
 
-    static_assert(!can_run_plan<decltype(invalid_double_consume_plan)>);
-    static_assert(!can_run_plan<decltype(invalid_borrow_plan)>);
-    static_assert(!can_run_plan<decltype(invalid_mut_plan)>);
+    static_assert(yorch::detail::validate_plan<invalid_double_consume_plan_t>() ==
+                  yorch::detail::plan_validation_error::fanout_policy_invalid);
+    static_assert(!can_run_plan<invalid_double_consume_plan_t>);
+    static_assert(!can_run_plan<invalid_borrow_plan_t>);
+    static_assert(!can_run_plan<invalid_mut_plan_t>);
     SUCCEED();
 }
 
