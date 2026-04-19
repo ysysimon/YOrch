@@ -39,7 +39,17 @@ concept direct_output_callable_task_argument =
     inferable_direct_output_callable<F>;
 
 template <typename F>
+concept forward_prev_callable_task_argument =
+    callable_task_argument<F> &&
+    inferable_forward_prev_callable<F>;
+
+template <typename F>
 concept ordinary_member_callable_task_argument =
+    callable_task_argument<F> &&
+    ordinary_member_bind_callable<F>;
+
+template <typename F>
+concept forward_prev_member_callable_task_argument =
     callable_task_argument<F> &&
     ordinary_member_bind_callable<F>;
 

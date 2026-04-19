@@ -128,6 +128,56 @@ public:
     }
 };
 
+template <typename BuilderStorage, std::size_t Level, typename F, typename FanoutPolicy, typename AdapterChain>
+struct tree_node_forward_prev_binder : tree_node_binder_base<BuilderStorage, Level, FanoutPolicy> {
+    F func;
+    AdapterChain adapter_specs;
+
+    constexpr tree_node_forward_prev_binder(
+        BuilderStorage builder,
+        F func,
+        FanoutPolicy fanout_policy,
+        AdapterChain adapter_specs)
+        : tree_node_binder_base<BuilderStorage, Level, FanoutPolicy> {
+              std::move(builder),
+              std::move(fanout_policy)}
+        , func(std::move(func))
+        , adapter_specs(std::move(adapter_specs)) {}
+
+private:
+    template <typename Self, typename Task>
+    static constexpr auto append_task(Self&& self, Task&& task) {
+        if constexpr (std::is_same_v<FanoutPolicy, no_fanout_policy_tag>) {
+            return tree_node_binder_base<BuilderStorage, Level, FanoutPolicy>::builder_ref(std::forward<Self>(self))
+                .template node<Level>(std::forward<Task>(task));
+        } else {
+            return tree_node_binder_base<BuilderStorage, Level, FanoutPolicy>::builder_ref(std::forward<Self>(self))
+                .template node<Level>(
+                    std::forward<Task>(task),
+                    forward_member<Self>(self.fanout_policy));
+        }
+    }
+
+public:
+    template <typename... Specs>
+        requires inferred_forward_prev_signature_matches<F, Specs...>
+    constexpr auto operator()(Specs&&... specs) const& {
+        return append_task(
+            *this,
+            yorch::task_forward_prev(func, adapter_specs)(
+                std::forward<Specs>(specs)...));
+    }
+
+    template <typename... Specs>
+        requires inferred_forward_prev_signature_matches<F, Specs...>
+    constexpr auto operator()(Specs&&... specs) && {
+        return append_task(
+            std::move(*this),
+            yorch::task_forward_prev(std::move(func), std::move(adapter_specs))(
+                std::forward<Specs>(specs)...));
+    }
+};
+
 template <typename BuilderStorage, std::size_t Level, typename F, typename ReceiverSpec, typename FanoutPolicy, typename AdapterChain>
 struct tree_node_member_receiver_binder : tree_node_binder_base<BuilderStorage, Level, FanoutPolicy> {
     F func;
@@ -177,6 +227,62 @@ public:
         return append_task(
             std::move(*this),
             yorch::task_member(std::move(func), std::move(receiver_spec), std::move(adapter_specs))(
+                std::forward<Specs>(specs)...));
+    }
+};
+
+template <typename BuilderStorage, std::size_t Level, typename F, typename ReceiverSpec, typename FanoutPolicy, typename AdapterChain>
+struct tree_node_forward_prev_member_receiver_binder : tree_node_binder_base<BuilderStorage, Level, FanoutPolicy> {
+    F func;
+    ReceiverSpec receiver_spec;
+    AdapterChain adapter_specs;
+
+    constexpr tree_node_forward_prev_member_receiver_binder(
+        BuilderStorage builder,
+        F func,
+        ReceiverSpec receiver_spec,
+        FanoutPolicy fanout_policy,
+        AdapterChain adapter_specs)
+        : tree_node_binder_base<BuilderStorage, Level, FanoutPolicy> {
+              std::move(builder),
+              std::move(fanout_policy)}
+        , func(std::move(func))
+        , receiver_spec(std::move(receiver_spec))
+        , adapter_specs(std::move(adapter_specs)) {}
+
+private:
+    template <typename Self, typename Task>
+    static constexpr auto append_task(Self&& self, Task&& task) {
+        if constexpr (std::is_same_v<FanoutPolicy, no_fanout_policy_tag>) {
+            return tree_node_binder_base<BuilderStorage, Level, FanoutPolicy>::builder_ref(std::forward<Self>(self))
+                .template node<Level>(std::forward<Task>(task));
+        } else {
+            return tree_node_binder_base<BuilderStorage, Level, FanoutPolicy>::builder_ref(std::forward<Self>(self))
+                .template node<Level>(
+                    std::forward<Task>(task),
+                    forward_member<Self>(self.fanout_policy));
+        }
+    }
+
+public:
+    template <typename... Specs>
+        requires member_bound_signature_matches<F, Specs...>
+    constexpr auto operator()(Specs&&... specs) const& {
+        return append_task(
+            *this,
+            yorch::task_forward_prev_member(func, receiver_spec, adapter_specs)(
+                std::forward<Specs>(specs)...));
+    }
+
+    template <typename... Specs>
+        requires member_bound_signature_matches<F, Specs...>
+    constexpr auto operator()(Specs&&... specs) && {
+        return append_task(
+            std::move(*this),
+            yorch::task_forward_prev_member(
+                std::move(func),
+                std::move(receiver_spec),
+                std::move(adapter_specs))(
                 std::forward<Specs>(specs)...));
     }
 };

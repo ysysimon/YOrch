@@ -197,6 +197,63 @@ constexpr void task_member(F&&, ReceiverSpec&&, AdapterChain&&)
 
 template <typename F>
 // NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
+constexpr void task_forward_prev_member(F&&)
+    requires detail::ordinary_member_bind_callable<F> {
+    static_assert(
+        detail::always_false_v<F>,
+        "yorch::task_forward_prev_member(...) requires an explicit receiver binding as its second argument.");
+}
+
+template <typename F, typename AdapterChain>
+// NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
+constexpr void task_forward_prev_member(F&&, AdapterChain&&)
+    requires detail::ordinary_member_bind_callable<F> &&
+             detail::adapter_chain_like<AdapterChain> {
+    static_assert(
+        detail::always_false_v<std::tuple<F, AdapterChain>>,
+        "yorch::task_forward_prev_member(...) requires an explicit receiver binding as its second argument; pass adapters(...) as the third argument.");
+}
+
+template <typename F>
+// NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
+constexpr void task_forward_prev_member(F&&)
+    requires detail::inferable_direct_output_member_callable<F> {
+    static_assert(
+        detail::always_false_v<F>,
+        "yorch::task_forward_prev_member(...) requires an explicit receiver binding as its second argument; use yorch::task_into_member(...) for direct-output member functions.");
+}
+
+template <typename F, typename AdapterChain>
+// NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
+constexpr void task_forward_prev_member(F&&, AdapterChain&&)
+    requires detail::inferable_direct_output_member_callable<F> &&
+             detail::adapter_chain_like<AdapterChain> {
+    static_assert(
+        detail::always_false_v<std::tuple<F, AdapterChain>>,
+        "yorch::task_forward_prev_member(...) requires an explicit receiver binding as its second argument; use yorch::task_into_member(...) for direct-output member functions.");
+}
+
+template <typename F, typename ReceiverSpec>
+// NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
+constexpr void task_forward_prev_member(F&&, ReceiverSpec&&)
+    requires detail::inferable_direct_output_member_callable<F> {
+    static_assert(
+        detail::always_false_v<std::tuple<F, ReceiverSpec>>,
+        "yorch::task_forward_prev_member(...) received a direct-output member function whose last parameter is yorch::direct_out<T>; use yorch::task_into_member(...) instead.");
+}
+
+template <typename F, typename ReceiverSpec, typename AdapterChain>
+// NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
+constexpr void task_forward_prev_member(F&&, ReceiverSpec&&, AdapterChain&&)
+    requires detail::inferable_direct_output_member_callable<F> &&
+             detail::adapter_chain_like<AdapterChain> {
+    static_assert(
+        detail::always_false_v<std::tuple<F, ReceiverSpec, AdapterChain>>,
+        "yorch::task_forward_prev_member(...) received a direct-output member function whose last parameter is yorch::direct_out<T>; use yorch::task_into_member(...) instead.");
+}
+
+template <typename F>
+// NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
 constexpr void task_into_member(F&&)
     requires detail::inferable_direct_output_member_callable<F> {
     static_assert(

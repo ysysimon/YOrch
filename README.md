@@ -101,10 +101,16 @@ runner r(std::move(tree));
 成员函数请显式使用 member 专用入口：
 
 - 预绑定 task：`bind_member(...)` / `bind_into_member(...)`
-- 两段式 sugar：`task_member(...)` / `task_into_member(...)`
-- `task_tree` sugar：`root_member(...)` / `root_into_member(...)` / `node_member<Level>(...)` / `node_into_member<Level>(...)`
+- `forward_prev` 预绑定 task：`bind_forward_prev_member(...)`
+- 两段式 sugar：`task_member(...)` / `task_into_member(...)` / `task_forward_prev_member(...)`
+- `task_tree` sugar：`root_member(...)` / `root_into_member(...)` / `root_forward_prev_member(...)` / `node_member<Level>(...)` / `node_into_member<Level>(...)` / `node_forward_prev_member<Level>(...)`
 
 不要把 `&Class::method` 直接传给 `bind(...)`、`task(...)`、`task_into(...)`、`task_tree.root(...)` 或 `task_tree.node<...>(...)` 这类 ordinary callable 入口。
+
+普通 callable 的 `forward_prev` sugar 入口也已经单独提供：
+
+- 两段式 sugar：`task_forward_prev(...)`
+- `task_tree` sugar：`root_forward_prev(...)` / `node_forward_prev<Level>(...)`
 
 示例：
 

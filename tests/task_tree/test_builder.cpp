@@ -94,20 +94,28 @@ TEST(TaskTreeTest, RootBuilderRejectsInvalidLevelTransitions) {
                   "empty task_tree should allow callable root sugar");
     static_assert(can_append_root_callable_into<decltype(yorch::task_tree)>,
                   "empty task_tree should allow callable root direct-output sugar");
+    static_assert(can_append_root_callable_forward_prev<decltype(yorch::task_tree)>,
+                  "empty task_tree should expose callable root forward-prev sugar even though compile_plan later rejects root forward-prev nodes");
     static_assert(can_append_root_member_sugar<decltype(yorch::task_tree)>,
                   "empty task_tree should allow explicit member root sugar");
     static_assert(can_append_root_into_member_sugar<decltype(yorch::task_tree)>,
                   "empty task_tree should allow explicit member root direct-output sugar");
+    static_assert(can_append_root_forward_prev_member_sugar<decltype(yorch::task_tree)>,
+                  "empty task_tree should expose explicit member root forward-prev sugar even though compile_plan later rejects root forward-prev nodes");
     static_assert(!can_append_root_member_without_receiver<decltype(yorch::task_tree)>,
                   "root_member(...) should reject missing receiver bindings");
     static_assert(!can_append_root_into_member_without_receiver<decltype(yorch::task_tree)>,
                   "root_into_member(...) should reject missing receiver bindings");
+    static_assert(!can_append_root_forward_prev_member_without_receiver<decltype(yorch::task_tree)>,
+                  "root_forward_prev_member(...) should reject missing receiver bindings");
     static_assert(!can_append_root_member_callable<decltype(yorch::task_tree)>,
                   "empty task_tree should reject raw member function pointers in callable sugar");
     static_assert(!can_append_root_member_with_direct_output<decltype(yorch::task_tree)>,
                   "root_member(...) should reject direct-output member functions");
     static_assert(!can_append_root_into_member_with_ordinary<decltype(yorch::task_tree)>,
                   "root_into_member(...) should reject ordinary member functions");
+    static_assert(!can_append_root_forward_prev_member_with_direct_output<decltype(yorch::task_tree)>,
+                  "root_forward_prev_member(...) should reject direct-output member functions");
     static_assert(!yorch::detail::direct_output_callable_task_argument<ordinary_callable>,
                   "root_into(...) should reject ordinary callables without direct_out<T>");
     static_assert(!can_append_root<root_task_tree_t&>,
@@ -130,14 +138,22 @@ TEST(TaskTreeTest, RootBuilderRejectsInvalidLevelTransitions) {
                   "empty task_tree should reject node_into<1>(callable) because a root must come first");
     static_assert(can_append_node_callable_into<root_callable_into_task_tree_t&, 1>,
                   "root direct-output task_tree should allow descending one level to callable node direct-output sugar");
+    static_assert(can_append_node_callable_forward_prev<root_task_tree_t&, 1>,
+                  "root task_tree should expose callable node forward-prev sugar one level below the root");
     static_assert(can_append_node_member_sugar<root_task_tree_t&, 1>,
                   "root task_tree should allow descending one level to explicit member sugar");
     static_assert(can_append_node_into_member_sugar<root_task_tree_t&, 1>,
                   "root task_tree should allow descending one level to explicit member direct-output sugar");
+    static_assert(can_append_node_forward_prev_member_sugar<root_task_tree_t&, 1>,
+                  "root task_tree should expose explicit member node forward-prev sugar one level below the root");
     static_assert(!can_append_node_member_without_receiver<root_task_tree_t&, 1>,
                   "node_member<Level>(...) should reject missing receiver bindings");
     static_assert(!can_append_node_into_member_without_receiver<root_task_tree_t&, 1>,
                   "node_into_member<Level>(...) should reject missing receiver bindings");
+    static_assert(!can_append_node_forward_prev_member_without_receiver<root_task_tree_t&, 1>,
+                  "node_forward_prev_member<Level>(...) should reject missing receiver bindings");
+    static_assert(!can_append_node_forward_prev_member_with_direct_output<root_task_tree_t&, 1>,
+                  "node_forward_prev_member<Level>(...) should reject direct-output member functions");
     static_assert(!can_append_node_callable_into<root_callable_into_task_tree_t&, 2>,
                   "root direct-output task_tree should reject skipping directly from level 0 to level 2");
     static_assert(can_append_noop<depth_one_task_tree_t&, 1>,

@@ -57,6 +57,42 @@ TEST(TaskTreeTest, RootCallableIntoAndNodeCallableIntoBuildRunnablePlan) {
     EXPECT_EQ(seen_child, 14);
 }
 
+TEST(TaskTreeTest, RootAndNodeForwardPrevCallableSugarBuildRunnablePlan) {
+    const int* root_seen = nullptr;
+    const int* child_seen = nullptr;
+    int final_value = 0;
+
+    auto tree = yorch::task_tree
+        .root([]() noexcept -> int {
+            return 5;
+        })()
+        .node_forward_prev<1>(
+            [&](int& value) noexcept -> yorch::step_result {
+                root_seen = &value;
+                value += 4;
+                return yorch::step_result::success();
+            })(yorch::borrow_prev_mut<int>())
+        .node<2>(
+            [&](const int& value) noexcept -> yorch::step_result {
+                child_seen = &value;
+                final_value = value;
+                return yorch::step_result::success();
+            })(yorch::borrow_prev<int>());
+
+    auto plan = yorch::compile_plan(tree);
+    using plan_t = decltype(plan);
+    static_assert(plan_t::template output_storage_mode_for<1> == yorch::detail::output_storage_mode::forwarded_prev);
+    static_assert(yorch::plan_exec_slots<plan_t>::physical_slot_count == 1);
+
+    const auto result = yorch::run_plan(plan);
+
+    EXPECT_TRUE(result.ok());
+    ASSERT_NE(root_seen, nullptr);
+    ASSERT_NE(child_seen, nullptr);
+    EXPECT_EQ(root_seen, child_seen);
+    EXPECT_EQ(final_value, 9);
+}
+
 TEST(TaskTreeTest, RootCallableWithDefaultCatchAdapterWrapsBoundTask) {
     auto tree = yorch::task_tree.root(
         []() -> yorch::step_result {

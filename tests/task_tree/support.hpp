@@ -30,6 +30,11 @@ struct member_tree_worker {
         return base;
     }
 
+    yorch::step_result mutate_self(int delta) noexcept {
+        base += delta;
+        return yorch::step_result::success();
+    }
+
     yorch::step_result emit_text(int delta, yorch::direct_out<std::string> out) noexcept {
         base += delta;
         return out.success(std::to_string(base));
@@ -52,8 +57,27 @@ struct move_only_tree_worker {
         return base;
     }
 
+    yorch::step_result adjust(int delta) noexcept {
+        base += delta;
+        return yorch::step_result::success();
+    }
+
     [[nodiscard]] yorch::step_result emit_text(yorch::direct_out<std::string> out) const noexcept {
         return out.success(std::to_string(base));
+    }
+};
+
+struct forward_prev_tree_payload {
+    int value = 0;
+};
+
+struct forward_prev_tree_service {
+    int seen_value = 0;
+
+    yorch::step_result bump(forward_prev_tree_payload& payload, int delta) noexcept {
+        seen_value = payload.value;
+        payload.value += delta;
+        return yorch::step_result::success();
     }
 };
 
@@ -99,6 +123,15 @@ concept can_append_root_callable_into =
     };
 
 template <typename TaskTree>
+concept can_append_root_callable_forward_prev =
+    requires(TaskTree&& task_tree) {
+        std::forward<TaskTree>(task_tree)
+            .root_forward_prev([](int&) noexcept -> yorch::step_result {
+                return yorch::step_result::success();
+            })(yorch::borrow_prev_mut<int>());
+    };
+
+template <typename TaskTree>
 concept can_append_root_member_callable =
     requires(TaskTree&& task_tree) {
         std::forward<TaskTree>(task_tree).root(&member_tree_worker::seed);
@@ -117,6 +150,24 @@ template <typename TaskTree>
 concept can_append_root_into_member_sugar =
     requires(TaskTree&& task_tree) {
         std::forward<TaskTree>(task_tree).root_into_member(
+            &member_tree_worker::emit_text,
+            yorch::value(member_tree_worker {}))(
+            yorch::value(1));
+    };
+
+template <typename TaskTree>
+concept can_append_root_forward_prev_member_sugar =
+    requires(TaskTree&& task_tree) {
+        std::forward<TaskTree>(task_tree).root_forward_prev_member(
+            &member_tree_worker::mutate_self,
+            yorch::borrow_prev_mut<member_tree_worker>())(
+            yorch::value(1));
+    };
+
+template <typename TaskTree>
+concept can_append_root_forward_prev_member_with_direct_output =
+    requires(TaskTree&& task_tree) {
+        std::forward<TaskTree>(task_tree).root_forward_prev_member(
             &member_tree_worker::emit_text,
             yorch::value(member_tree_worker {}))(
             yorch::value(1));
@@ -154,11 +205,27 @@ concept can_append_root_into_member_without_receiver =
             std::forward<TaskTree>(task_tree).root_into_member(&member_tree_worker::emit_text))>);
     };
 
+template <typename TaskTree>
+concept can_append_root_forward_prev_member_without_receiver =
+    requires(TaskTree&& task_tree) {
+        requires (!std::is_void_v<decltype(
+            std::forward<TaskTree>(task_tree).root_forward_prev_member(&member_tree_worker::mutate_self))>);
+    };
+
 template <typename TaskTree, std::size_t Level>
 concept can_append_node_callable_into =
     requires(TaskTree&& task_tree) {
         std::forward<TaskTree>(task_tree)
             .template node_into<Level>([](yorch::direct_out<int>) noexcept {})();
+    };
+
+template <typename TaskTree, std::size_t Level>
+concept can_append_node_callable_forward_prev =
+    requires(TaskTree&& task_tree) {
+        std::forward<TaskTree>(task_tree)
+            .template node_forward_prev<Level>([](int&) noexcept -> yorch::step_result {
+                return yorch::step_result::success();
+            })(yorch::borrow_prev_mut<int>());
     };
 
 template <typename TaskTree, std::size_t Level>
@@ -180,6 +247,24 @@ concept can_append_node_into_member_sugar =
     };
 
 template <typename TaskTree, std::size_t Level>
+concept can_append_node_forward_prev_member_sugar =
+    requires(TaskTree&& task_tree) {
+        std::forward<TaskTree>(task_tree).template node_forward_prev_member<Level>(
+            &member_tree_worker::mutate_self,
+            yorch::borrow_prev_mut<member_tree_worker>())(
+            yorch::value(1));
+    };
+
+template <typename TaskTree, std::size_t Level>
+concept can_append_node_forward_prev_member_with_direct_output =
+    requires(TaskTree&& task_tree) {
+        std::forward<TaskTree>(task_tree).template node_forward_prev_member<Level>(
+            &member_tree_worker::emit_text,
+            yorch::value(member_tree_worker {}))(
+            yorch::value(1));
+    };
+
+template <typename TaskTree, std::size_t Level>
 concept can_append_node_member_without_receiver =
     requires(TaskTree&& task_tree) {
         requires (!std::is_void_v<decltype(
@@ -191,6 +276,13 @@ concept can_append_node_into_member_without_receiver =
     requires(TaskTree&& task_tree) {
         requires (!std::is_void_v<decltype(
             std::forward<TaskTree>(task_tree).template node_into_member<Level>(&member_tree_worker::emit_text))>);
+    };
+
+template <typename TaskTree, std::size_t Level>
+concept can_append_node_forward_prev_member_without_receiver =
+    requires(TaskTree&& task_tree) {
+        requires (!std::is_void_v<decltype(
+            std::forward<TaskTree>(task_tree).template node_forward_prev_member<Level>(&member_tree_worker::mutate_self))>);
     };
 
 }  // namespace task_tree_test_support

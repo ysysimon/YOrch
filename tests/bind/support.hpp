@@ -145,6 +145,21 @@ concept can_make_task_into_member_from_receiver_first =
             yorch::value(1));
     };
 
+template <typename F>
+concept can_make_task_forward_prev_member_without_receiver =
+    requires(F&& func) {
+        requires (!std::is_void_v<decltype(yorch::task_forward_prev_member(std::forward<F>(func)))>);
+    };
+
+template <typename F>
+concept can_make_task_forward_prev_member_from_receiver_first =
+    requires(F&& func) {
+        yorch::task_forward_prev_member(
+            std::forward<F>(func),
+            yorch::value(member_worker {}))(
+            yorch::borrow_prev_mut<member_worker>());
+    };
+
 struct forward_prev_probe {
     int value = 0;
 };

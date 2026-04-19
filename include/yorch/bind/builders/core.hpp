@@ -3,6 +3,7 @@
 #include <type_traits>
 #include <utility>
 
+#include "../../detail/bind/tasks.hpp"
 #include "../../detail/bind/traits.hpp"
 #include "../adapters.hpp"
 
@@ -16,6 +17,9 @@ struct task_forward_prev_binder;
 
 template <typename F, typename ReceiverSpec, typename AdapterChain>
 struct task_member_receiver_binder;
+
+template <typename F, typename ReceiverSpec, typename AdapterChain>
+struct task_forward_prev_member_receiver_binder;
 
 template <typename F, typename ReceiverSpec, typename AdapterChain>
 struct task_into_member_receiver_binder;
@@ -117,6 +121,53 @@ struct task_member_receiver_binder {
     constexpr auto operator()(Specs&&... specs) && {
         return yorch::apply_adapters(
             yorch::bind_member(std::move(func), std::move(receiver_spec), std::forward<Specs>(specs)...),
+            std::move(adapter_specs));
+    }
+};
+
+template <typename F, typename ReceiverSpec, typename AdapterChain>
+struct task_forward_prev_member_receiver_binder {
+    F func;
+    ReceiverSpec receiver_spec;
+    AdapterChain adapter_specs;
+
+    template <typename... Specs>
+        requires detail::member_bound_signature_matches<F, Specs...>
+    constexpr auto operator()(Specs&&... specs) const& {
+        using output_type =
+            detail::forward_prev_unique_prev_payload_t<
+                std::decay_t<ReceiverSpec>,
+                std::decay_t<Specs>...>;
+
+        static_assert(
+            !std::is_void_v<output_type>,
+            "yorch::task_forward_prev_member(...) requires exactly one prev-access binding across receiver and member-function parameters");
+
+        return yorch::apply_adapters(
+            yorch::bind_forward_prev_member<output_type>(
+                func,
+                receiver_spec,
+                std::forward<Specs>(specs)...),
+            adapter_specs);
+    }
+
+    template <typename... Specs>
+        requires detail::member_bound_signature_matches<F, Specs...>
+    constexpr auto operator()(Specs&&... specs) && {
+        using output_type =
+            detail::forward_prev_unique_prev_payload_t<
+                std::decay_t<ReceiverSpec>,
+                std::decay_t<Specs>...>;
+
+        static_assert(
+            !std::is_void_v<output_type>,
+            "yorch::task_forward_prev_member(...) requires exactly one prev-access binding across receiver and member-function parameters");
+
+        return yorch::apply_adapters(
+            yorch::bind_forward_prev_member<output_type>(
+                std::move(func),
+                std::move(receiver_spec),
+                std::forward<Specs>(specs)...),
             std::move(adapter_specs));
     }
 };
@@ -247,6 +298,39 @@ constexpr auto task_forward_prev(F&& f, AdapterChain&& adapter_specs)
         std::decay_t<AdapterChain>
     > {
         std::forward<F>(f),
+        std::forward<AdapterChain>(adapter_specs)
+    };
+}
+
+template <typename F, typename ReceiverSpec>
+constexpr auto task_forward_prev_member(F&& f, ReceiverSpec&& receiver_spec)
+    requires detail::ordinary_member_bind_callable<F> &&
+             detail::member_receiver_bindable<F, ReceiverSpec> &&
+             (!detail::adapter_chain_like<ReceiverSpec>) {
+    return task_forward_prev_member_receiver_binder<
+        std::decay_t<F>,
+        std::decay_t<ReceiverSpec>,
+        adapter_chain<>
+    > {
+        std::forward<F>(f),
+        std::forward<ReceiverSpec>(receiver_spec),
+        {}
+    };
+}
+
+template <typename F, typename ReceiverSpec, typename AdapterChain>
+constexpr auto task_forward_prev_member(F&& f, ReceiverSpec&& receiver_spec, AdapterChain&& adapter_specs)
+    requires detail::ordinary_member_bind_callable<F> &&
+             detail::member_receiver_bindable<F, ReceiverSpec> &&
+             (!detail::adapter_chain_like<ReceiverSpec>) &&
+             detail::adapter_chain_like<AdapterChain> {
+    return task_forward_prev_member_receiver_binder<
+        std::decay_t<F>,
+        std::decay_t<ReceiverSpec>,
+        std::decay_t<AdapterChain>
+    > {
+        std::forward<F>(f),
+        std::forward<ReceiverSpec>(receiver_spec),
         std::forward<AdapterChain>(adapter_specs)
     };
 }
