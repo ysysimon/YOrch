@@ -84,6 +84,60 @@ yorch_expect_compile_failure(
 )
 
 yorch_expect_compile_failure(
+  bind_member_not_member
+  "bind_member(...) requires a non-static member function pointer"
+  "bind_member non-member callable"
+)
+
+yorch_expect_compile_failure(
+  bind_member_direct_output
+  "bind_member(...) does not accept direct-output member functions; use bind_into_member(...) instead"
+  "bind_member direct-output member"
+)
+
+yorch_expect_compile_failure(
+  bind_member_arity_mismatch
+  "bind_member(...) requires one receiver binding plus exactly one spec per member-function parameter"
+  "bind_member arity mismatch"
+)
+
+yorch_expect_compile_failure(
+  bind_into_member_void_output
+  "bind_into_member<T>(...) requires a non-void owned payload type T"
+  "bind_into_member void output"
+)
+
+yorch_expect_compile_failure(
+  bind_into_member_reference_output
+  "bind_into_member<T>(...) requires a non-void owned payload type T"
+  "bind_into_member reference output"
+)
+
+yorch_expect_compile_failure(
+  bind_into_member_not_member
+  "bind_into_member(...) requires a non-static member function pointer"
+  "bind_into_member non-member callable"
+)
+
+yorch_expect_compile_failure(
+  bind_into_member_missing_output_parameter
+  "bind_into_member(...) requires a member function whose last parameter is yorch::direct_out<T>"
+  "bind_into_member missing output parameter"
+)
+
+yorch_expect_compile_failure(
+  bind_into_member_arity_mismatch
+  "bind_into_member(...) requires one receiver binding plus exactly one spec per non-output member-function parameter"
+  "bind_into_member arity mismatch"
+)
+
+yorch_expect_compile_failure(
+  bind_into_member_wrong_output_parameter
+  "bind_into_member(...) callable must take yorch::direct_out<T> as its last parameter"
+  "bind_into_member wrong output parameter"
+)
+
+yorch_expect_compile_failure(
   bind_forward_prev_void_output
   "bind_forward_prev<T>(...) requires a non-void owned payload type T"
   "bind_forward_prev void output"

@@ -94,17 +94,7 @@ constexpr void bind_member(F&&) {
 
 template <typename F, typename ReceiverSpec, typename... Specs>
 constexpr auto bind_member(F&& f, ReceiverSpec&& receiver_spec, Specs&&... specs) {
-    using fn_t = std::remove_cvref_t<F>;
-
-    static_assert(
-        detail::member_bind_callable<fn_t>,
-        "bind_member(...) requires a non-static member function pointer");
-    static_assert(
-        detail::ordinary_member_bind_callable<fn_t>,
-        "bind_member(...) does not accept direct-output member functions; use bind_into_member(...) instead");
-    static_assert(
-        sizeof...(Specs) == detail::member_function_traits<fn_t>::arity,
-        "bind_member(...) requires one receiver binding plus exactly one spec per member-function parameter");
+    detail::emit_bind_member_diagnostic<F, ReceiverSpec, Specs...>();
 
     return bound_member_task<
         std::decay_t<F>,
@@ -127,22 +117,7 @@ constexpr void bind_into_member(F&&) {
 
 template <typename T, typename F, typename ReceiverSpec, typename... Specs>
 constexpr auto bind_into_member(F&& f, ReceiverSpec&& receiver_spec, Specs&&... specs) {
-    using fn_t = std::remove_cvref_t<F>;
-
-    static_assert(
-        detail::member_bind_callable<fn_t>,
-        "bind_into_member(...) requires a non-static member function pointer");
-    static_assert(detail::member_function_traits<fn_t>::arity > 0,
-                  "bind_into_member(...) requires a member function whose last parameter is yorch::direct_out<T>");
-    static_assert(
-        sizeof...(Specs) + 1 == detail::member_function_traits<fn_t>::arity,
-        "bind_into_member(...) requires one receiver binding plus exactly one spec per non-output member-function parameter");
-
-    using last_arg_t = detail::member_last_arg_t<fn_t>;
-
-    static_assert(
-        std::is_same_v<std::remove_cvref_t<last_arg_t>, direct_out<T>>,
-        "bind_into_member(...) callable must take yorch::direct_out<T> as its last parameter");
+    detail::emit_bind_into_member_diagnostic<T, F, ReceiverSpec, Specs...>();
 
     return bound_member_output_task<
         std::decay_t<F>,

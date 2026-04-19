@@ -2,6 +2,63 @@
 
 using namespace bind_test_support;
 
+namespace {
+
+static_assert(yorch::detail::validate_bind_member<
+                  decltype(&member_worker::accumulate),
+                  yorch::from_ctx_t<member_worker>,
+                  yorch::from_ctx_t<int>,
+                  yorch::from_ctx_t<std::string>,
+                  yorch::value_t<int>>() == yorch::detail::bind_member_error::ok);
+static_assert(yorch::detail::validate_bind_member<
+                  decltype([](int) noexcept -> yorch::step_result {
+                      return yorch::step_result::success();
+                  }),
+                  yorch::from_ctx_t<member_worker>,
+                  yorch::value_t<int>>() == yorch::detail::bind_member_error::callable_not_member);
+static_assert(yorch::detail::validate_bind_member<
+                  decltype(&member_worker::advance_and_emit),
+                  yorch::from_ctx_t<member_worker>,
+                  yorch::value_t<int>>() == yorch::detail::bind_member_error::direct_output_member_not_supported);
+static_assert(yorch::detail::validate_bind_member<
+                  decltype(&member_worker::accumulate),
+                  yorch::from_ctx_t<member_worker>,
+                  yorch::value_t<int>>() == yorch::detail::bind_member_error::arity_mismatch);
+
+static_assert(yorch::detail::validate_bind_into_member<
+                  int,
+                  decltype(&member_worker::advance_and_emit),
+                  yorch::from_ctx_t<member_worker>,
+                  yorch::value_t<int>>() == yorch::detail::bind_into_member_error::ok);
+static_assert(yorch::detail::validate_bind_into_member<
+                  void,
+                  decltype(&member_worker::advance_and_emit),
+                  yorch::from_ctx_t<member_worker>,
+                  yorch::value_t<int>>() == yorch::detail::bind_into_member_error::invalid_output_type);
+static_assert(yorch::detail::validate_bind_into_member<
+                  int&,
+                  decltype(&member_worker::advance_and_emit),
+                  yorch::from_ctx_t<member_worker>,
+                  yorch::value_t<int>>() == yorch::detail::bind_into_member_error::invalid_output_type);
+static_assert(yorch::detail::validate_bind_into_member<
+                  int,
+                  decltype([](int) noexcept -> yorch::step_result {
+                      return yorch::step_result::success();
+                  }),
+                  yorch::from_ctx_t<member_worker>,
+                  yorch::value_t<int>>() == yorch::detail::bind_into_member_error::callable_not_member);
+static_assert(yorch::detail::validate_bind_into_member<
+                  int,
+                  decltype(&member_worker::note),
+                  yorch::from_ctx_t<member_worker>>() == yorch::detail::bind_into_member_error::last_parameter_not_direct_out);
+static_assert(yorch::detail::validate_bind_into_member<
+                  int,
+                  decltype(&move_only_member_worker::emit),
+                  yorch::from_ctx_t<move_only_member_worker>,
+                  yorch::value_t<int>>() == yorch::detail::bind_into_member_error::arity_mismatch);
+
+} // namespace
+
 TEST(BindTest, BoundMemberTaskResolvesReceiverFromContext) {
     yorch::context<member_worker, int, std::string> ctx(member_worker {}, 3, "job");
     yorch::exec_context<decltype(ctx)> exec {ctx};
