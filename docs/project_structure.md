@@ -12,9 +12,10 @@ YOrch/
   src/                     # Library implementation sources
   tests/                   # Unit and integration tests
   examples/                # Small usage examples
-  docs/                    # Generated-documentation inputs
+  docs/                    # Project maintenance documentation
+  doxygen/                 # Doxygen configuration and generated-doc notes
   scripts/                 # Project maintenance scripts
-  wiki/                    # Human-facing explanatory notes
+  wiki/                    # Human-facing English and Chinese user guides
   README.md
   LICENSE
   AGENTS.md

@@ -104,13 +104,16 @@ if(YORCH_BUILD_DOCS)
     find_package(Doxygen REQUIRED)
 
     set(YORCH_DOXYGEN_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/target")
-    set(YORCH_DOXYFILE_IN "${PROJECT_SOURCE_DIR}/docs/Doxyfile.in")
+    set(YORCH_DOXYFILE_IN "${PROJECT_SOURCE_DIR}/doxygen/Doxyfile.in")
     set(YORCH_DOXYFILE_OUT "${CMAKE_CURRENT_BINARY_DIR}/Doxyfile")
 
     configure_file("${YORCH_DOXYFILE_IN}" "${YORCH_DOXYFILE_OUT}" @ONLY)
 
     add_custom_target(docs
         COMMAND "${DOXYGEN_EXECUTABLE}" "${YORCH_DOXYFILE_OUT}"
+        COMMAND "${CMAKE_COMMAND}" -E copy_directory
+            "${PROJECT_SOURCE_DIR}/assets"
+            "${YORCH_DOXYGEN_OUTPUT_DIR}/html/assets"
         WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
         COMMENT "Generating API documentation with Doxygen"
         VERBATIM

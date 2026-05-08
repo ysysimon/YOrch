@@ -50,6 +50,7 @@ docs/update-api-overview
 - `fix`: A bug fix.
 - `refactor`: Code changes that do not alter external behavior.
 - `docs`: Documentation changes.
+- `doxygen`: Doxygen-related updates.
 - `test`: Test-related updates.
 - `bench`: Benchmarks-related updates.
 - `chore`: General maintenance tasks.

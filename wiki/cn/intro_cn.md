@@ -1,6 +1,11 @@
 # YOrch
 
-[English](../../README.md) | [中文](intro_cn.md)
+<p align="center">
+  <img src="../../assets/banner.png" alt="Banner" width="100%">
+  <a href="../../LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-76B900.svg" alt="License"></a>
+  <a href="../../README.md"><img src="https://img.shields.io/badge/Language-English-1f6feb.svg" alt="English"></a>
+  <a href="intro_cn.md"><img src="https://img.shields.io/badge/Language-%E4%B8%AD%E6%96%87-1f6feb.svg" alt="中文"></a>
+</p>
 
 ## 简介
 YOrch 是一个面向 **任务** 的编排与执行库，充分利用了编译时展开优化，目前是纯头文件的。

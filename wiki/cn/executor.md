@@ -1,5 +1,7 @@
 # 执行器
 
+[English](../en/executor.md) | [中文](executor.md)
+
 执行器负责运行已经编译好的 plan。通常流程是：
 
 ```cpp

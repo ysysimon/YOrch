@@ -1,4 +1,7 @@
 # 注册任务
+
+[English](../en/register_task.md) | [中文](register_task.md)
+
 YOrch 当前把任务分成三种主要语义：普通任务、direct-output 任务和 forward-prev 任务。它们最大的区别，是和 **插槽 slot** 的关系不同
 
 ### 普通任务
