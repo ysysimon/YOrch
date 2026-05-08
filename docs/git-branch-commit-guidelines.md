@@ -51,6 +51,7 @@ docs/update-api-overview
 - `refactor`: Code changes that do not alter external behavior.
 - `docs`: Documentation changes.
 - `test`: Test-related updates.
+- `bench`: Benchmarks-related updates.
 - `chore`: General maintenance tasks.
 - `perf`: Performance improvements.
 - `build`: Changes to the build system or packaging flow.

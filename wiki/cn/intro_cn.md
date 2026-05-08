@@ -170,3 +170,161 @@ load_config
 后续会继续补充 **异步串行** 和 **异步并行** 的执行方式，让同一套任务结构可以在更多运行模型下复用。
 
 执行器相关概念和 `API` 可以在 [这里](executor.md) 找到
+
+## 性能测试
+YOrch 使用 `Google Benchmark` 做运行期性能测试。由于当前库主要支持的是静态任务树构建，
+任务结构通常在执行前就已经通过 `compile_plan(...)` 固化成 plan，因此当前 benchmark
+重点测试的是已经编译好的 plan 在 `run_plan(...)` 阶段的执行成本，而不是任务树构建或
+`compile_plan(...)` 本身的成本。
+
+可以通过 benchmark preset 构建：
+
+```bash
+cmake --preset benchmark
+cmake --build --preset benchmark
+```
+
+运行 `run_plan` benchmark：
+
+```bash
+./build/benchmark/benchmarks/bench_run_plan --benchmark_min_time=0.05s
+```
+
+当前 `bench_run_plan` 会输出两类结果：
+
+- `RunPlan/Runtime/...`：现实执行基线。benchmark 会用 `DoNotOptimize(plan)`、
+  `DoNotOptimize(sink)` 和 `ClobberMemory()` 减少过度优化，尽量测到实际
+  `run_plan(...)` 调度、slot、prev-access 和 policy 路径的成本。
+- `RunPlan/Optimized/...`：优化上限。benchmark 不对 plan 加额外 barrier，
+  允许编译器尽量 inline、fold 和消除抽象，用来观察 YOrch 的静态执行路径在理想条件下
+  能被优化到什么程度。
+
+benchmark 名称的结构是：
+
+```text
+RunPlan/<Mode>/<Topology>/<Payload>/<NodeCount>/<SlotLayout>/<ExecPolicy>
+```
+
+例如：
+
+```text
+RunPlan/Runtime/Chain32/Int/32/Compact/HeapStack
+```
+
+表示用 `Runtime` 模式测试 32 个节点的链式 plan，payload 是 `int`，
+slot layout 使用 `Compact`，execution policy 使用显式 heap stack。
+
+当前测试覆盖的 topology 包括：
+
+- `Chain8` 和 `Chain32`：链式任务树，用来观察深度增长后的执行成本。
+- `Wide8`：一个 root 下挂多个 sibling，用来观察 fanout/sibling traversal 成本。
+- `Balanced15`：15 个节点的平衡树，用来观察更接近常规任务树的混合结构。
+- `FanoutConsumeCopies3`：使用 `fanout_consume_with_copies_policy`，
+  1 个 `consume_prev` child 和 2 个 `copy_prev` child，用来观察 staging/copy 成本。
+
+当前测试覆盖的 policy 组合包括：
+
+- `OneToOne/Recursive`
+- `Compact/Recursive`
+- `OneToOne/HeapStack`
+- `Compact/HeapStack`
+
+其中 `Recursive` 指 `exec_serial_dfs_recursive_policy`，使用编译期递归展开的同步 DFS；
+`HeapStack` 指 `exec_serial_dfs_explicit_heap_stack_policy`，使用显式 heap stack 保存遍历状态。
+`OneToOne` 是一节点一物理 slot 的默认布局；`Compact` 会按同步串行 DFS 的生命周期复用 slot。
+
+文中的数字来自一次本地测试，只能作为量级参考。不同 `CPU`、编译器、编译选项、
+系统负载、温度状态和操作系统调度都会影响纳秒级 benchmark 的绝对数值。
+严肃比较时应该记录硬件、操作系统、编译器版本、`CMake` preset、构建类型和运行参数，
+并优先比较同一环境下不同 policy 或 topology 之间的相对差异。
+
+这次示例结果的环境是：
+
+- **CPU**: Apple M4
+- **OS**: macOS
+- **Compiler**: `AppleClang`
+- **Build**: `benchmark` preset, `Release`
+- **Command**: `./build/benchmark/benchmarks/bench_run_plan --benchmark_min_time=0.05s`
+
+### 当前结果解读
+
+一次典型结果中，`Runtime` 模式下的 `Recursive` 路径大致是：
+
+```text
+RunPlan/Runtime/Chain8/Int/8/OneToOne/Recursive       11.2 ns
+RunPlan/Runtime/Chain32/Int/32/OneToOne/Recursive     50.6 ns
+RunPlan/Runtime/Balanced15/Int/15/OneToOne/Recursive  20.8 ns
+```
+
+折算下来，`Recursive` 路径大约在 `1.4 ns/node` 到 `1.6 ns/node` 这个量级。
+这说明当前同步串行 DFS 的静态执行路径非常轻，和直接手写必要的静态 `if` 判断、
+内联函数调用链属于接近的开销量级。它不是动态调度器式的成本，更像是 template 展开后的
+结构化函数调用。
+
+同一批测试中，`HeapStack` 路径大致是：
+
+```text
+RunPlan/Runtime/Chain8/Int/8/OneToOne/HeapStack       40.7 ns
+RunPlan/Runtime/Chain32/Int/32/OneToOne/HeapStack      186 ns
+RunPlan/Runtime/Balanced15/Int/15/OneToOne/HeapStack  76.8 ns
+```
+
+折算下来，`HeapStack` 路径大约在 `5 ns/node` 到 `6 ns/node` 这个量级。
+它仍然很轻，但相比 `Recursive` 明显更贵，因为它需要维护 runtime frame、heap stack、
+node index 和 dispatch table。它的主要价值是避免深递归调用栈风险，而不是追求最低延迟。
+
+`Optimized` 模式下，一些 `Recursive` case 可以接近：
+
+```text
+RunPlan/Optimized/Chain8/Int/8/OneToOne/Recursive      1.59 ns
+RunPlan/Optimized/Wide8/Int/9/OneToOne/Recursive       1.59 ns
+RunPlan/Optimized/Balanced15/Int/15/OneToOne/Recursive 1.59 ns
+```
+
+这不表示真实业务执行一定只需要 `1.59 ns`，而是说明在非常理想、可静态分析的条件下，
+编译器可以看穿大量 YOrch 抽象，把 `Recursive` 的静态执行路径 inline 或 fold 掉。
+这正是 `Optimized` 结果的意义：它展示的是 zero-cost abstraction 的优化上限。
+
+值得注意的是，`Optimized/Chain32/Recursive` 在当前结果中仍然接近 `Runtime`：
+
+```text
+RunPlan/Optimized/Chain32/Int/32/OneToOne/Recursive  50.6 ns
+```
+
+这说明编译器并不会对所有形状都做同样程度的消除。更长的依赖链可能触发 inline 或优化阈值，
+于是保留了更多实际执行路径。这个差异可以帮助我们判断哪些任务形状更容易被优化器完全吃掉。
+
+### 对实时热路径的结论
+
+从当前结果看，YOrch 框架本身的底噪很低。对于普通实时应用、游戏帧循环、音视频外围逻辑、
+高频业务调度等场景，如果任务本身会做内存访问、计算、日志、锁、IO 或其他业务逻辑，
+`run_plan(...)` 的调度成本通常不会是主要瓶颈。
+
+如果热路径中的 task 极轻，例如每个任务只做几个整数操作，那么框架成本就会变得可见。
+这种情况下推荐优先使用：
+
+```cpp
+yorch::run_plan<
+    yorch::slot_layout_one_to_one_policy,
+    yorch::exec_serial_dfs_recursive_policy
+>(plan);
+```
+
+也就是默认 slot layout 加 `Recursive` execution policy。只有当 plan 可能非常深，
+并且调用栈深度风险比最低延迟更重要时，再考虑 `HeapStack`。
+
+对于硬实时、audio callback、交易 tick 内核、每秒千万级 tight loop 这类极端热路径，
+仍然建议用真实业务 payload、真实任务树形状和目标机器单独测量。当前 microbenchmark
+可以说明 YOrch 的框架开销处在很低的量级，但不能替代真实 workload benchmark。
+
+运行 benchmark 时，macOS 上可能看到类似输出：
+
+```text
+Unable to determine clock rate from sysctl: hw.cpufrequency
+This does not affect benchmark measurements, only the metadata output.
+***WARNING*** Failed to set thread affinity. Estimated CPU frequency may be incorrect.
+```
+
+这表示 `Google Benchmark` 没能读取准确 CPU 频率或固定线程亲和性。它不影响 `Time` 和
+`CPU` 的计时本身，但 `Run on (10 X 24 MHz CPU s)` 这类 metadata 不应作为真实 CPU 频率解读。
+严肃对比时应该多跑几轮，关注趋势、中位数和不同 policy 之间的稳定差异。

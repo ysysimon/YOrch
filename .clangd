@@ -1,8 +1,8 @@
 If:
-  PathMatch: ^(include/yorch|src|tests|examples)/.*
+  PathMatch: ^(include/yorch|src|tests|examples|benchmarks)/.*
 
 CompileFlags:
-  CompilationDatabase: build/dev
+  CompilationDatabase: build/clangd
   Add:
     - -std=gnu++20
     - -Iinclude

@@ -69,6 +69,14 @@
       "cacheVariables": {
         "YORCH_BUILD_DOCS": "ON"
       }
+    },
+    {
+      "name": "benchmark",
+      "displayName": "Benchmark",
+      "inherits": "release-no-tests",
+      "cacheVariables": {
+        "YORCH_BUILD_BENCHMARKS": "ON"
+      }
     }
   ],
   "buildPresets": [
@@ -95,6 +103,10 @@
     {
       "name": "docs",
       "configurePreset": "docs"
+    },
+    {
+      "name": "benchmark",
+      "configurePreset": "benchmark"
     }
   ],
   "testPresets": [

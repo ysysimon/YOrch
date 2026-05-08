@@ -29,6 +29,7 @@ The main public headers are located under `include/yorch/`:
 
 - `execution_model.md`
 - `design_positioning.md`
+- `development.md`
 
 ## Build Docs
 

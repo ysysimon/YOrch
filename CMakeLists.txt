@@ -8,6 +8,7 @@ include(CMakePackageConfigHelpers)
 option(YORCH_BUILD_TESTS "Build YOrch tests" ON)
 option(YORCH_BUILD_EXAMPLES "Build YOrch examples" ON)
 option(YORCH_BUILD_DOCS "Build YOrch API documentation with Doxygen" OFF)
+option(YORCH_BUILD_BENCHMARKS "Build YOrch benchmarks" OFF)
 option(YORCH_ENABLE_ASSERTS "Enable YOrch asserts" ON)
 
 add_library(yorch_header_only INTERFACE)
@@ -93,6 +94,10 @@ endif()
 
 if(YORCH_BUILD_EXAMPLES)
     add_subdirectory(examples)
+endif()
+
+if(YORCH_BUILD_BENCHMARKS)
+    add_subdirectory(benchmarks)
 endif()
 
 if(YORCH_BUILD_DOCS)
