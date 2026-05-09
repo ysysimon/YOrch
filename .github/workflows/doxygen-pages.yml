@@ -24,6 +24,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Install documentation dependencies
         run: |
@@ -41,6 +43,8 @@ jobs:
           test -f build/docs/target/html/index.html
           test -f build/docs/target/html/md_intro__cn.html
           test -f build/docs/target/html/assets/banner.png
+          file build/docs/target/html/assets/banner.png | grep 'PNG image data'
+          test "$(wc -c < build/docs/target/html/assets/banner.png)" -gt 100000
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
