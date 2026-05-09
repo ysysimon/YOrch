@@ -5,6 +5,8 @@ project(YOrch VERSION 1.0.0 LANGUAGES CXX)
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
+set(YORCH_REPOSITORY_URL "https://github.com/ysysimon/YOrch" CACHE STRING "YOrch repository URL")
+
 option(YORCH_BUILD_TESTS "Build YOrch tests" ON)
 option(YORCH_BUILD_EXAMPLES "Build YOrch examples" ON)
 option(YORCH_BUILD_DOCS "Build YOrch API documentation with Doxygen" OFF)
@@ -101,21 +103,5 @@ if(YORCH_BUILD_BENCHMARKS)
 endif()
 
 if(YORCH_BUILD_DOCS)
-    find_package(Doxygen REQUIRED)
-
-    set(YORCH_DOXYGEN_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/target")
-    set(YORCH_DOXYFILE_IN "${PROJECT_SOURCE_DIR}/doxygen/Doxyfile.in")
-    set(YORCH_DOXYFILE_OUT "${CMAKE_CURRENT_BINARY_DIR}/Doxyfile")
-
-    configure_file("${YORCH_DOXYFILE_IN}" "${YORCH_DOXYFILE_OUT}" @ONLY)
-
-    add_custom_target(docs
-        COMMAND "${DOXYGEN_EXECUTABLE}" "${YORCH_DOXYFILE_OUT}"
-        COMMAND "${CMAKE_COMMAND}" -E copy_directory
-            "${PROJECT_SOURCE_DIR}/assets"
-            "${YORCH_DOXYGEN_OUTPUT_DIR}/html/assets"
-        WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
-        COMMENT "Generating API documentation with Doxygen"
-        VERBATIM
-    )
+    add_subdirectory(doxygen)
 endif()

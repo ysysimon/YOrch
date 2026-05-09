@@ -36,6 +36,12 @@ jobs:
       - name: Build documentation
         run: cmake --build --preset docs --target docs
 
+      - name: Verify documentation artifact
+        run: |
+          test -f build/docs/target/html/index.html
+          test -f build/docs/target/html/md_intro__cn.html
+          test -f build/docs/target/html/assets/banner.png
+
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
 

@@ -7,8 +7,7 @@ The generated documentation uses the repository `README.md` as its main page and
 includes:
 
 - public headers under `include/yorch/`
-- the English user wiki under `wiki/en/`
-- this Doxygen notes page
+- the English and Chinese user wiki pages under `wiki/`
 
 Build the generated documentation with:
 
